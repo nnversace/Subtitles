@@ -5,6 +5,7 @@ import { SubtitleOutput } from './components/SubtitleOutput';
 import { MagicIcon } from './components/icons/MagicIcon';
 import { generateSubtitlesFromText } from './services/geminiService';
 import { HistoryPanel } from './components/HistoryPanel';
+import { ToggleSwitch } from './components/ToggleSwitch';
 
 export interface HistoryItem {
   id: number;
@@ -38,6 +39,8 @@ const translations = {
     toggleLanguage: "切换中文",
     uploadTooltip: "Upload from file",
     uploadError: "Failed to read file.",
+    thinkingMode: "Thinking Mode",
+    thinkingModeTooltip: "Uses a more powerful model for complex scripts. May take longer.",
   },
   zh: {
     title: "文案转字幕",
@@ -61,6 +64,8 @@ const translations = {
     toggleLanguage: "Switch to English",
     uploadTooltip: "从文件上传",
     uploadError: "读取文件失败。",
+    thinkingMode: "深度思考模式",
+    thinkingModeTooltip: "为复杂文稿启用更强大的模型，生成时间可能会更长。",
   },
 };
 
@@ -71,7 +76,8 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);
-  
+  const [isThinkingMode, setIsThinkingMode] = useState<boolean>(false);
+
   const [language, setLanguage] = useState<Language>(() => (localStorage.getItem('language') as Language) || 'zh');
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('theme') as Theme) || 'light');
 
@@ -121,7 +127,7 @@ const App: React.FC = () => {
     subtitlesRef.current = '';
 
     try {
-      await generateSubtitlesFromText(copywriting, language, (chunk) => {
+      await generateSubtitlesFromText(copywriting, language, isThinkingMode, (chunk) => {
         setSubtitles(prev => prev + chunk);
         subtitlesRef.current += chunk;
       });
@@ -145,7 +151,7 @@ const App: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [copywriting, isLoading, language]);
+  }, [copywriting, isLoading, language, isThinkingMode]);
 
   const handleClear = () => {
     setCopywriting('');
@@ -241,6 +247,20 @@ const App: React.FC = () => {
               >
                 {texts.history}
               </button>
+              
+              <div className="relative group flex items-center">
+                <ToggleSwitch
+                  id="thinking-mode-toggle"
+                  checked={isThinkingMode}
+                  onChange={setIsThinkingMode}
+                  disabled={isLoading}
+                  label={texts.thinkingMode}
+                />
+                 <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-300 whitespace-nowrap pointer-events-none dark:bg-gray-200 dark:text-gray-800">
+                  {texts.thinkingModeTooltip}
+                </div>
+              </div>
+
               <button
                 onClick={handleGenerate}
                 disabled={!copywriting.trim() || isLoading}

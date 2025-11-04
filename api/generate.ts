@@ -149,7 +149,7 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   try {
-    const { text, lang } = await req.json();
+    const { text, lang, isThinkingMode } = await req.json();
 
     if (!text || (lang !== 'en' && lang !== 'zh')) {
       return new Response('Invalid request body. "text" and "lang" are required.', { status: 400 });
@@ -158,9 +158,15 @@ export default async function handler(req: Request): Promise<Response> {
     const prompt = lang === 'zh' ? PROMPT_ZH : PROMPT_EN;
     const fullPrompt = `${prompt}\n\n"${text}"`;
 
+    const model = isThinkingMode ? 'gemini-2.5-pro' : 'gemini-2.5-flash';
+    const config = isThinkingMode 
+      ? { thinkingConfig: { thinkingBudget: 32768 } }
+      : undefined;
+
     const responseStream = await ai.models.generateContentStream({
-      model: 'gemini-2.5-flash',
+      model: model,
       contents: fullPrompt,
+      ...(config && { config }),
     });
     
     // Create a new readable stream to pipe the Gemini response

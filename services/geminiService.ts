@@ -1,6 +1,7 @@
 export const generateSubtitlesFromText = async (
   text: string, 
   lang: 'en' | 'zh',
+  isThinkingMode: boolean,
   onStreamUpdate: (chunk: string) => void
 ): Promise<void> => {
   try {
@@ -9,7 +10,7 @@ export const generateSubtitlesFromText = async (
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ text, lang }),
+      body: JSON.stringify({ text, lang, isThinkingMode }),
     });
 
     if (!response.ok) {
