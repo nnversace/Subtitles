@@ -1,0 +1,235 @@
+
+import React, { useState, useCallback, useEffect } from 'react';
+import { Header } from './components/Header';
+import { TextAreaInput } from './components/TextAreaInput';
+import { SubtitleOutput } from './components/SubtitleOutput';
+import { MagicIcon } from './components/icons/MagicIcon';
+import { generateSubtitlesFromText } from './services/geminiService';
+import { HistoryPanel } from './components/HistoryPanel';
+
+export interface HistoryItem {
+  id: number;
+  copywriting: string;
+  subtitles: string;
+}
+
+type Language = 'en' | 'zh';
+type Theme = 'light' | 'dark';
+
+const translations = {
+  en: {
+    title: "Copywriting to Subtitles",
+    ai: "AI",
+    yourScript: "Your Script",
+    placeholder: "Paste your script or copywriting here...",
+    generatedSubtitles: "Generated Subtitles",
+    outputPlaceholder: "Your generated subtitles will appear here.",
+    history: "History",
+    generate: "Generate Subtitles",
+    generating: "Generating...",
+    clear: "Clear",
+    historyPanelTitle: "Generation History",
+    historyEmpty: "Your generation history is empty.",
+    clearHistory: "Clear History",
+    close: "Close",
+    copyTooltip: "Copy to clipboard",
+    copiedTooltip: "Copied!",
+    errorPrefix: "Error: ",
+    toggleTheme: "Toggle theme",
+    toggleLanguage: "切换中文",
+  },
+  zh: {
+    title: "文案转字幕",
+    ai: "AI",
+    yourScript: "你的文稿",
+    placeholder: "在此处粘贴您的脚本或文案...",
+    generatedSubtitles: "生成的字幕",
+    outputPlaceholder: "您生成的字幕将显示在此处。",
+    history: "历史",
+    generate: "生成字幕",
+    generating: "生成中...",
+    clear: "清除",
+    historyPanelTitle: "生成历史",
+    historyEmpty: "您的生成历史为空。",
+    clearHistory: "清除历史",
+    close: "关闭",
+    copyTooltip: "复制到剪贴板",
+    copiedTooltip: "已复制！",
+    errorPrefix: "错误：",
+    toggleTheme: "切换主题",
+    toggleLanguage: "Switch to English",
+  },
+};
+
+const App: React.FC = () => {
+  const [copywriting, setCopywriting] = useState<string>('');
+  const [subtitles, setSubtitles] = useState<string>('');
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);
+  
+  const [language, setLanguage] = useState<Language>(() => (localStorage.getItem('language') as Language) || 'zh');
+  const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('theme') as Theme) || 'light');
+
+  const texts = translations[language];
+
+  useEffect(() => {
+    try {
+      const savedHistory = localStorage.getItem('subtitleHistory');
+      if (savedHistory) {
+        setHistory(JSON.parse(savedHistory));
+      }
+    } catch (error) {
+      console.error("Failed to parse history from localStorage", error);
+      localStorage.removeItem('subtitleHistory');
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem('language', language);
+  }, [language]);
+  
+  useEffect(() => {
+    localStorage.setItem('theme', theme);
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [theme]);
+
+  const handleToggleTheme = () => {
+    setTheme(prevTheme => prevTheme === 'light' ? 'dark' : 'light');
+  };
+
+  const handleToggleLanguage = () => {
+    setLanguage(prevLang => prevLang === 'en' ? 'zh' : 'en');
+  };
+
+  const handleGenerate = useCallback(async () => {
+    if (!copywriting.trim() || isLoading) return;
+
+    setIsLoading(true);
+    setError(null);
+    setSubtitles('');
+
+    try {
+      const result = await generateSubtitlesFromText(copywriting, language);
+      setSubtitles(result);
+
+      const newHistoryItem: HistoryItem = {
+        id: Date.now(),
+        copywriting,
+        subtitles: result,
+      };
+      setHistory(prevHistory => {
+        const updatedHistory = [newHistoryItem, ...prevHistory].slice(0, 50); // Keep max 50 items
+        localStorage.setItem('subtitleHistory', JSON.stringify(updatedHistory));
+        return updatedHistory;
+      });
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An unknown error occurred.');
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [copywriting, isLoading, language]);
+
+  const handleClear = () => {
+    setCopywriting('');
+    setSubtitles('');
+    setError(null);
+  };
+
+  const handleClearHistory = () => {
+    setHistory([]);
+    localStorage.removeItem('subtitleHistory');
+  };
+
+  const handleSelectHistory = (item: HistoryItem) => {
+    setCopywriting(item.copywriting);
+    setSubtitles(item.subtitles);
+    setError(null);
+    setIsHistoryPanelOpen(false);
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 flex flex-col transition-colors duration-300">
+      <Header
+        title={texts.title}
+        aiText={texts.ai}
+        theme={theme}
+        onToggleTheme={handleToggleTheme}
+        onToggleLanguage={handleToggleLanguage}
+        toggleThemeTooltip={texts.toggleTheme}
+        toggleLanguageTooltip={texts.toggleLanguage}
+      />
+      <main className="flex-grow w-full max-w-6xl mx-auto p-4 md:p-6 lg:p-8 flex flex-col">
+        <div className="flex-grow grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 mb-24">
+          <TextAreaInput
+            label={texts.yourScript}
+            value={copywriting}
+            onChange={(e) => setCopywriting(e.target.value)}
+            placeholder={texts.placeholder}
+            disabled={isLoading}
+          />
+          <SubtitleOutput
+            label={texts.generatedSubtitles}
+            subtitles={subtitles}
+            isLoading={isLoading}
+            error={error}
+            placeholder={texts.outputPlaceholder}
+            copyTooltip={texts.copyTooltip}
+            copiedTooltip={texts.copiedTooltip}
+            errorPrefix={texts.errorPrefix}
+          />
+        </div>
+      </main>
+      <div className="fixed bottom-0 left-0 right-0 bg-gray-50/80 dark:bg-gray-900/80 backdrop-blur-sm">
+        <div className="container mx-auto p-4 border-t border-gray-200 dark:border-gray-700">
+            <div className="max-w-6xl mx-auto flex justify-center items-center gap-4">
+              <button
+                onClick={() => setIsHistoryPanelOpen(true)}
+                disabled={isLoading}
+                className="px-6 py-3 font-semibold text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-700 rounded-xl hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 transition-colors duration-300"
+              >
+                {texts.history}
+              </button>
+              <button
+                onClick={handleGenerate}
+                disabled={!copywriting.trim() || isLoading}
+                className="flex items-center justify-center gap-2 px-6 py-3 font-semibold text-white bg-gray-900 dark:bg-blue-600 rounded-xl shadow-sm hover:bg-gray-700 dark:hover:bg-blue-500 disabled:bg-gray-400 dark:disabled:bg-gray-500 disabled:cursor-not-allowed transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-50 dark:focus:ring-offset-gray-900 focus:ring-gray-900 dark:focus:ring-blue-500"
+              >
+                <MagicIcon className="w-5 h-5" />
+                <span>{isLoading ? texts.generating : texts.generate}</span>
+              </button>
+              <button
+                onClick={handleClear}
+                disabled={isLoading}
+                className="px-6 py-3 font-semibold text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-700 rounded-xl hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 transition-colors duration-300"
+              >
+                {texts.clear}
+              </button>
+            </div>
+        </div>
+      </div>
+      <HistoryPanel
+        isOpen={isHistoryPanelOpen}
+        history={history}
+        onClose={() => setIsHistoryPanelOpen(false)}
+        onSelect={handleSelectHistory}
+        onClear={handleClearHistory}
+        texts={{
+          title: texts.historyPanelTitle,
+          empty: texts.historyEmpty,
+          clear: texts.clearHistory,
+          close: texts.close,
+        }}
+      />
+    </div>
+  );
+};
+
+export default App;

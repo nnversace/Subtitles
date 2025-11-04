@@ -1,0 +1,5 @@
+{
+  "name": "Copywriting to Subtitles Converter",
+  "description": "An AI-powered tool to effortlessly convert your copywriting, scripts, or any text into a timed subtitle format (SRT-like). Paste your text, and let Gemini generate readable subtitle chunks with timestamps.",
+  "requestFramePermissions": []
+}
