@@ -186,6 +186,7 @@ export default async function handler(req: Request): Promise<Response> {
 
   } catch (error) {
     console.error("Error in server-side Gemini API call:", error);
-    return new Response("Internal Server Error: Failed to generate subtitles.", { status: 500 });
+    const errorMessage = error instanceof Error ? error.message : "An unknown error occurred on the server.";
+    return new Response(`Server Error: ${errorMessage}`, { status: 500 });
   }
 }
