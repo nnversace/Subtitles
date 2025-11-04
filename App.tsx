@@ -1,5 +1,4 @@
-
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Header } from './components/Header';
 import { TextAreaInput } from './components/TextAreaInput';
 import { SubtitleOutput } from './components/SubtitleOutput';
@@ -37,6 +36,8 @@ const translations = {
     errorPrefix: "Error: ",
     toggleTheme: "Toggle theme",
     toggleLanguage: "切换中文",
+    uploadTooltip: "Upload from file",
+    uploadError: "Failed to read file.",
   },
   zh: {
     title: "文案转字幕",
@@ -58,6 +59,8 @@ const translations = {
     errorPrefix: "错误：",
     toggleTheme: "切换主题",
     toggleLanguage: "Switch to English",
+    uploadTooltip: "从文件上传",
+    uploadError: "读取文件失败。",
   },
 };
 
@@ -72,6 +75,8 @@ const App: React.FC = () => {
   const [language, setLanguage] = useState<Language>(() => (localStorage.getItem('language') as Language) || 'zh');
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('theme') as Theme) || 'light');
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const subtitlesRef = useRef<string>('');
   const texts = translations[language];
 
   useEffect(() => {
@@ -113,21 +118,26 @@ const App: React.FC = () => {
     setIsLoading(true);
     setError(null);
     setSubtitles('');
+    subtitlesRef.current = '';
 
     try {
-      const result = await generateSubtitlesFromText(copywriting, language);
-      setSubtitles(result);
-
-      const newHistoryItem: HistoryItem = {
-        id: Date.now(),
-        copywriting,
-        subtitles: result,
-      };
-      setHistory(prevHistory => {
-        const updatedHistory = [newHistoryItem, ...prevHistory].slice(0, 50); // Keep max 50 items
-        localStorage.setItem('subtitleHistory', JSON.stringify(updatedHistory));
-        return updatedHistory;
+      await generateSubtitlesFromText(copywriting, language, (chunk) => {
+        setSubtitles(prev => prev + chunk);
+        subtitlesRef.current += chunk;
       });
+
+      if (subtitlesRef.current) {
+        const newHistoryItem: HistoryItem = {
+          id: Date.now(),
+          copywriting,
+          subtitles: subtitlesRef.current,
+        };
+        setHistory(prevHistory => {
+          const updatedHistory = [newHistoryItem, ...prevHistory].slice(0, 50); // Keep max 50 items
+          localStorage.setItem('subtitleHistory', JSON.stringify(updatedHistory));
+          return updatedHistory;
+        });
+      }
 
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An unknown error occurred.');
@@ -155,6 +165,31 @@ const App: React.FC = () => {
     setIsHistoryPanelOpen(false);
   };
 
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result as string;
+      setCopywriting(text);
+      setError(null); // Clear previous errors
+    };
+    reader.onerror = () => {
+      setError(texts.uploadError);
+      console.error('File reading error');
+    };
+    reader.readAsText(file);
+
+    if (event.target) {
+      event.target.value = '';
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 flex flex-col transition-colors duration-300">
       <Header
@@ -174,6 +209,8 @@ const App: React.FC = () => {
             onChange={(e) => setCopywriting(e.target.value)}
             placeholder={texts.placeholder}
             disabled={isLoading}
+            onUploadClick={handleUploadClick}
+            uploadTooltip={texts.uploadTooltip}
           />
           <SubtitleOutput
             label={texts.generatedSubtitles}
@@ -187,6 +224,13 @@ const App: React.FC = () => {
           />
         </div>
       </main>
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        className="hidden"
+        accept=".txt,.md,.srt,.vtt"
+      />
       <div className="fixed bottom-0 left-0 right-0 bg-gray-50/80 dark:bg-gray-900/80 backdrop-blur-sm">
         <div className="container mx-auto p-4 border-t border-gray-200 dark:border-gray-700">
             <div className="max-w-6xl mx-auto flex justify-center items-center gap-4">

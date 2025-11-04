@@ -32,7 +32,18 @@ export const SubtitleOutput: React.FC<SubtitleOutputProps> = ({ label, subtitles
   };
 
   const renderContent = () => {
-    if (isLoading) {
+    if (error) {
+      return (
+        <div className="flex items-center justify-center h-full text-center p-4">
+          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500/30 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg w-full">
+            <strong className="font-bold">{errorPrefix}</strong>
+            <span className="block sm:inline">{error}</span>
+          </div>
+        </div>
+      );
+    }
+
+    if (isLoading && !subtitles) {
       return (
         <div className="flex items-center justify-center h-full">
           <div className="flex flex-col items-center gap-4">
@@ -45,25 +56,20 @@ export const SubtitleOutput: React.FC<SubtitleOutputProps> = ({ label, subtitles
         </div>
       );
     }
-    if (error) {
-      return (
-        <div className="flex items-center justify-center h-full text-center p-4">
-          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500/30 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg w-full">
-            <strong className="font-bold">{errorPrefix}</strong>
-            <span className="block sm:inline">{error}</span>
-          </div>
-        </div>
-      );
-    }
-    if (!subtitles) {
+
+    if (!subtitles && !isLoading) {
        return (
         <div className="flex items-center justify-center h-full text-center">
           <p className="text-gray-500 dark:text-gray-400">{placeholder}</p>
         </div>
       );
     }
+
     return (
-      <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300 leading-relaxed break-words">{subtitles}</pre>
+      <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300 leading-relaxed break-words" role="status" aria-live="polite">
+        {subtitles}
+        {isLoading && <span className="inline-block w-0.5 h-4 bg-gray-700 dark:bg-gray-300 animate-pulse ml-1" aria-hidden="true" />}
+      </pre>
     );
   };
   
@@ -73,7 +79,7 @@ export const SubtitleOutput: React.FC<SubtitleOutputProps> = ({ label, subtitles
         <label htmlFor="subtitle-output" className="text-sm font-medium text-gray-600 dark:text-gray-400">
           {label}
         </label>
-        {subtitles && !isLoading && !error && (
+        {subtitles && !error && (
           <IconButton onClick={handleCopy} tooltip={copied ? copiedTooltip : copyTooltip}>
             <CopyIcon className="w-5 h-5"/>
           </IconButton>

@@ -1,4 +1,3 @@
-
 import { GoogleGenAI } from "@google/genai";
 
 const API_KEY = process.env.API_KEY;
@@ -135,16 +134,25 @@ The final goal is to simulate natural speech pauses and create visual rhythm. Li
 Now, process the following text:
 `;
 
-export const generateSubtitlesFromText = async (text: string, lang: 'en' | 'zh'): Promise<string> => {
+export const generateSubtitlesFromText = async (
+  text: string, 
+  lang: 'en' | 'zh',
+  onStreamUpdate: (chunk: string) => void
+): Promise<void> => {
   try {
     const prompt = lang === 'zh' ? PROMPT_ZH : PROMPT_EN;
     const fullPrompt = `${prompt}\n\n"${text}"`;
-    const response = await ai.models.generateContent({
+    const response = await ai.models.generateContentStream({
       model: 'gemini-2.5-flash',
       contents: fullPrompt,
     });
     
-    return response.text;
+    for await (const chunk of response) {
+      const chunkText = chunk.text;
+      if (chunkText) {
+        onStreamUpdate(chunkText);
+      }
+    }
   } catch (error) {
     console.error("Error calling Gemini API:", error);
     throw new Error("Failed to generate subtitles. Please check your API key and try again.");

@@ -1,5 +1,7 @@
 
 import React from 'react';
+import { IconButton } from './IconButton';
+import { UploadIcon } from './icons/UploadIcon';
 
 interface TextAreaInputProps {
   label: string;
@@ -7,14 +9,21 @@ interface TextAreaInputProps {
   onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => void;
   placeholder: string;
   disabled: boolean;
+  onUploadClick: () => void;
+  uploadTooltip: string;
 }
 
-export const TextAreaInput: React.FC<TextAreaInputProps> = ({ label, value, onChange, placeholder, disabled }) => {
+export const TextAreaInput: React.FC<TextAreaInputProps> = ({ label, value, onChange, placeholder, disabled, onUploadClick, uploadTooltip }) => {
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl p-4 flex flex-col h-full shadow-sm border border-gray-200 dark:border-gray-700 transition-colors duration-300">
-      <label htmlFor="copywriting-input" className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">
-        {label}
-      </label>
+      <div className="flex justify-between items-center mb-2">
+        <label htmlFor="copywriting-input" className="text-sm font-medium text-gray-600 dark:text-gray-400">
+          {label}
+        </label>
+        <IconButton onClick={onUploadClick} tooltip={uploadTooltip}>
+          <UploadIcon className="w-5 h-5" />
+        </IconButton>
+      </div>
       <textarea
         id="copywriting-input"
         value={value}
