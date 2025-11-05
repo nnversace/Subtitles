@@ -1,18 +1,18 @@
+
 // This file should be placed in your backend/serverless function directory.
 // For example, in a Next.js project, this would be `pages/api/generate.ts`.
 // In a standalone Node.js server, this logic would be part of a route handler.
 
-import { GoogleGenAI } from "@google/genai";
 
-// IMPORTANT: The API_KEY is now read from the server's environment variables.
-// It is NOT exposed to the client.
-const API_KEY = process.env.API_KEY;
+// IMPORTANT: API keys and URLs are read from the server's environment variables.
+// They are NOT exposed to the client.
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const OPENAI_API_URL = process.env.OPENAI_API_URL || 'https://api.openai.com';
 
-if (!API_KEY) {
-  throw new Error("API_KEY environment variable not set on the server");
+
+if (!OPENAI_API_KEY) {
+  console.warn("OPENAI_API_KEY environment variable not set on the server");
 }
-
-const ai = new GoogleGenAI({ apiKey: API_KEY });
 
 const PROMPT_ZH = `
 Your core mission is to convert any input text (like scripts or articles) into pure, rhythm-focused "plain text subtitles". You must strictly follow all steps and principles to produce the required format.
@@ -148,50 +148,98 @@ export default async function handler(req: Request): Promise<Response> {
     return new Response('Method Not Allowed', { status: 405 });
   }
 
-  try {
-    const { text, lang, isThinkingMode } = await req.json();
+  if (!OPENAI_API_KEY) {
+    return new Response('OPENAI_API_KEY environment variable not set on the server', { status: 500 });
+  }
 
-    if (!text || (lang !== 'en' && lang !== 'zh')) {
-      return new Response('Invalid request body. "text" and "lang" are required.', { status: 400 });
+  try {
+    const { text, lang, isThinkingMode, provider } = await req.json();
+
+    if (!text || (lang !== 'en' && lang !== 'zh') || !provider) {
+      return new Response('Invalid request body. "text", "lang", and "provider" are required.', { status: 400 });
+    }
+    
+    let model: string;
+    if (provider === 'gemini') {
+      model = isThinkingMode ? 'GEMINI-2.5-PRO-THINKING' : 'GEMINI-2.5-PRO';
+    } else { // provider === 'openai'
+      model = isThinkingMode ? 'GPT-5-THINKING' : 'GPT-5';
     }
 
     const prompt = lang === 'zh' ? PROMPT_ZH : PROMPT_EN;
-    const fullPrompt = `${prompt}\n\n"${text}"`;
+    const endpoint = `${OPENAI_API_URL.replace(/\/$/, '')}/v1/chat/completions`;
 
-    const model = isThinkingMode ? 'gemini-2.5-pro' : 'gemini-2.5-flash';
-    const config = isThinkingMode 
-      ? { thinkingConfig: { thinkingBudget: 32768 } }
-      : undefined;
-
-    const responseStream = await ai.models.generateContentStream({
-      model: model,
-      contents: fullPrompt,
-      ...(config && { config }),
+    const openaiResponse = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+          model: model,
+          messages: [
+              { role: 'system', content: prompt },
+              { role: 'user', content: text }
+          ],
+          stream: true,
+      }),
     });
+
+    if (!openaiResponse.ok) {
+      const errorText = await openaiResponse.text();
+      return new Response(`OpenAI API error: ${errorText}`, { status: openaiResponse.status });
+    }
     
-    // Create a new readable stream to pipe the Gemini response
     const stream = new ReadableStream({
       async start(controller) {
+        if (!openaiResponse.body) {
+          controller.close();
+          return;
+        }
+        const reader = openaiResponse.body.getReader();
+        const decoder = new TextDecoder();
         const encoder = new TextEncoder();
-        for await (const chunk of responseStream) {
-          const chunkText = chunk.text;
-          if (chunkText) {
-            controller.enqueue(encoder.encode(chunkText));
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.trim() === 'data: [DONE]') {
+              controller.close();
+              return;
+            }
+            if (line.startsWith('data: ')) {
+              const jsonStr = line.substring(6);
+              try {
+                const parsed = JSON.parse(jsonStr);
+                const content = parsed.choices[0]?.delta?.content;
+                if (content) {
+                  controller.enqueue(encoder.encode(content));
+                }
+              } catch (e) {
+                console.error('Could not parse OpenAI stream chunk:', jsonStr);
+              }
+            }
           }
         }
         controller.close();
-      },
+      }
     });
-
-    return new Response(stream, {
-      headers: {
+    return new Response(stream, { 
+      headers: { 
         'Content-Type': 'text/plain; charset=utf-8',
         'X-Content-Type-Options': 'nosniff',
-      },
+      }
     });
 
   } catch (error) {
-    console.error("Error in server-side Gemini API call:", error);
+    console.error("Error in server-side API call:", error);
     const errorMessage = error instanceof Error ? error.message : "An unknown error occurred on the server.";
     return new Response(`Server Error: ${errorMessage}`, { status: 500 });
   }

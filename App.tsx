@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Header } from './components/Header';
 import { TextAreaInput } from './components/TextAreaInput';
@@ -6,6 +7,7 @@ import { MagicIcon } from './components/icons/MagicIcon';
 import { generateSubtitlesFromText } from './services/geminiService';
 import { HistoryPanel } from './components/HistoryPanel';
 import { ToggleSwitch } from './components/ToggleSwitch';
+import { ProviderSelector } from './components/ProviderSelector';
 
 export interface HistoryItem {
   id: number;
@@ -15,6 +17,7 @@ export interface HistoryItem {
 
 type Language = 'en' | 'zh';
 type Theme = 'light' | 'dark';
+type Provider = 'gemini' | 'openai';
 
 const translations = {
   en: {
@@ -41,6 +44,9 @@ const translations = {
     uploadError: "Failed to read file.",
     thinkingMode: "Thinking Mode",
     thinkingModeTooltip: "Uses a more powerful model for complex scripts. May take longer.",
+    provider: "AI Provider",
+    gemini: "Gemini",
+    openai: "OpenAI",
   },
   zh: {
     title: "文案转字幕",
@@ -66,6 +72,9 @@ const translations = {
     uploadError: "读取文件失败。",
     thinkingMode: "深度思考模式",
     thinkingModeTooltip: "为复杂文稿启用更强大的模型，生成时间可能会更长。",
+    provider: "AI 模型",
+    gemini: "Gemini",
+    openai: "OpenAI",
   },
 };
 
@@ -77,6 +86,7 @@ const App: React.FC = () => {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);
   const [isThinkingMode, setIsThinkingMode] = useState<boolean>(false);
+  const [provider, setProvider] = useState<Provider>('gemini');
 
   const [language, setLanguage] = useState<Language>(() => (localStorage.getItem('language') as Language) || 'zh');
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('theme') as Theme) || 'light');
@@ -92,8 +102,7 @@ const App: React.FC = () => {
         setHistory(JSON.parse(savedHistory));
       }
     } catch (error) {
-      console.error("Failed to parse history from localStorage", error);
-      localStorage.removeItem('subtitleHistory');
+      console.error("Failed to parse from localStorage", error);
     }
   }, []);
 
@@ -127,7 +136,7 @@ const App: React.FC = () => {
     subtitlesRef.current = '';
 
     try {
-      await generateSubtitlesFromText(copywriting, language, isThinkingMode, (chunk) => {
+      await generateSubtitlesFromText(copywriting, language, isThinkingMode, provider, (chunk) => {
         setSubtitles(prev => prev + chunk);
         subtitlesRef.current += chunk;
       });
@@ -151,7 +160,7 @@ const App: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [copywriting, isLoading, language, isThinkingMode]);
+  }, [copywriting, isLoading, language, isThinkingMode, provider]);
 
   const handleClear = () => {
     setCopywriting('');
@@ -248,6 +257,13 @@ const App: React.FC = () => {
                 {texts.history}
               </button>
               
+              <ProviderSelector 
+                value={provider}
+                onChange={setProvider}
+                disabled={isLoading}
+                texts={{ gemini: texts.gemini, openai: texts.openai }}
+              />
+
               <div className="relative group flex items-center">
                 <ToggleSwitch
                   id="thinking-mode-toggle"
@@ -256,11 +272,11 @@ const App: React.FC = () => {
                   disabled={isLoading}
                   label={texts.thinkingMode}
                 />
-                 <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-300 whitespace-nowrap pointer-events-none dark:bg-gray-200 dark:text-gray-800">
+                <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-300 whitespace-nowrap pointer-events-none dark:bg-gray-200 dark:text-gray-800">
                   {texts.thinkingModeTooltip}
                 </div>
               </div>
-
+              
               <button
                 onClick={handleGenerate}
                 disabled={!copywriting.trim() || isLoading}

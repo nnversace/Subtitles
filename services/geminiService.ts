@@ -1,7 +1,9 @@
+
 export const generateSubtitlesFromText = async (
   text: string, 
   lang: 'en' | 'zh',
   isThinkingMode: boolean,
+  provider: 'gemini' | 'openai',
   onStreamUpdate: (chunk: string) => void
 ): Promise<void> => {
   try {
@@ -10,7 +12,7 @@ export const generateSubtitlesFromText = async (
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ text, lang, isThinkingMode }),
+      body: JSON.stringify({ text, lang, isThinkingMode, provider }),
     });
 
     if (!response.ok) {
