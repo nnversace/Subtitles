@@ -46,7 +46,10 @@ const translations = {
     settings: {
       title: "Settings",
       apiKey: "API Key",
-      apiKeyPlaceholder: "Enter your Gemini API Key",
+      apiKeyPlaceholder: "Enter your OPENAI API KEY",
+      openAiApiUrl: "OpenAI API URL (OpenAI-compatible apps)",
+      openAiApiUrlPlaceholder: "https://api.openai.com/v1",
+      openAiApiUrlHint: "Optional. Configure this when using an OpenAI-compatible API endpoint.",
       useClientSide: "Use client-side request mode",
       useClientSideHint: "Client-side mode sends requests directly from the browser. Required for model testing.",
       modelList: "Model List",
@@ -88,7 +91,10 @@ const translations = {
     settings: {
       title: "设置",
       apiKey: "API Key",
-      apiKeyPlaceholder: "请输入您的 Gemini API Key",
+      apiKeyPlaceholder: "请输入您的 OPENAI API KEY",
+      openAiApiUrl: "OpenAI API 地址（兼容 OpenAI 的应用）",
+      openAiApiUrlPlaceholder: "https://api.openai.com/v1",
+      openAiApiUrlHint: "可选项。当您使用兼容 OpenAI 的接口时，请在此设置 API 地址。",
       useClientSide: "使用客户端请求模式",
       useClientSideHint: "客户端请求模式将从浏览器直接发起对话请求。模型测试需要开启此项。",
       modelList: "模型列表",
@@ -110,6 +116,7 @@ const translations = {
 // FIX: Update settings to be Gemini-specific, removing openaiProxyUrl and updating default models.
 const defaultSettings: AppSettings = {
   apiKey: process.env.API_KEY || '',
+  openAiApiUrl: process.env.OPENAI_API_URL || 'https://api.openai.com/v1',
   useClientSide: true,
   selectedModels: ['gemini-2.5-pro', 'gemini-flash-latest'],
 };
@@ -137,9 +144,10 @@ const App: React.FC = () => {
       const savedSettings = localStorage.getItem('appSettings');
       if (savedSettings) {
         const parsedSettings = JSON.parse(savedSettings);
-        setSettings(parsedSettings);
-        if (parsedSettings.selectedModels?.length > 0) {
-          setSelectedModel(parsedSettings.selectedModels[0]);
+        const mergedSettings: AppSettings = { ...defaultSettings, ...parsedSettings };
+        setSettings(mergedSettings);
+        if (mergedSettings.selectedModels?.length > 0) {
+          setSelectedModel(mergedSettings.selectedModels[0]);
         }
       } else {
         setSettings(defaultSettings);

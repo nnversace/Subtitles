@@ -8,9 +8,9 @@ import { EyeOffIcon } from './icons/EyeOffIcon';
 import { RefreshIcon } from './icons/RefreshIcon';
 import { CheckIcon } from './icons/CheckIcon';
 
-// FIX: Update AppSettings to remove openaiProxyUrl, as it is no longer needed with the Gemini SDK.
 export interface AppSettings {
   apiKey: string;
+  openAiApiUrl: string;
   useClientSide: boolean;
   selectedModels: string[];
 }
@@ -24,6 +24,9 @@ interface SettingsModalProps {
     title: string;
     apiKey: string;
     apiKeyPlaceholder: string;
+    openAiApiUrl: string;
+    openAiApiUrlPlaceholder: string;
+    openAiApiUrlHint: string;
     useClientSide: string;
     useClientSideHint: string;
     modelList: string;
@@ -164,6 +167,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                   {showApiKey ? <EyeOffIcon className="w-5 h-5"/> : <EyeIcon className="w-5 h-5"/>}
                 </button>
               </div>
+            </div>
+
+            <div>
+              <label htmlFor="openai-api-url-input" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{texts.openAiApiUrl}</label>
+              <input
+                id="openai-api-url-input"
+                type="text"
+                value={localSettings.openAiApiUrl}
+                onChange={(e) => setLocalSettings(prev => ({ ...prev, openAiApiUrl: e.target.value }))}
+                placeholder={texts.openAiApiUrlPlaceholder}
+                className="w-full px-3 py-2 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+              />
+              <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">{texts.openAiApiUrlHint}</p>
             </div>
             
             <div>
