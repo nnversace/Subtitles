@@ -134,6 +134,9 @@ interface GenerateSubtitlesParams {
   model: string;
   settings: AppSettings;
   onStreamUpdate: (chunk: string) => void;
+  onStreamComplete?: () => void;
+  onStreamError?: (error: Error) => void;
+  signal?: AbortSignal;
 }
 
 const ensureBaseUrl = (url: string) => {
@@ -141,9 +144,35 @@ const ensureBaseUrl = (url: string) => {
   return url.endsWith('/') ? url.slice(0, -1) : url;
 };
 
+const processStreamPayload = (
+  payload: unknown,
+  onStreamUpdate: (chunk: string) => void
+) => {
+  if (!payload || typeof payload !== 'object') return;
+  const choice = (payload as any).choices?.[0];
+  if (!choice) return;
+
+  const delta = choice.delta?.content ?? choice.message?.content;
+  if (typeof delta === 'string') {
+    onStreamUpdate(delta);
+    return;
+  }
+
+  if (Array.isArray(delta)) {
+    for (const part of delta) {
+      if (typeof part === 'string') {
+        onStreamUpdate(part);
+      } else if (part?.type === 'text' && typeof part.text === 'string') {
+        onStreamUpdate(part.text);
+      }
+    }
+  }
+};
+
 const handleChatCompletionStream = async (
   response: Response,
-  onStreamUpdate: (chunk: string) => void
+  onStreamUpdate: (chunk: string) => void,
+  options: { signal?: AbortSignal } = {}
 ) => {
   if (!response.body) {
     throw new Error('The response body is empty.');
@@ -154,6 +183,11 @@ const handleChatCompletionStream = async (
   let buffer = '';
 
   while (true) {
+    if (options.signal?.aborted) {
+      reader.releaseLock();
+      throw new DOMException('The request was aborted.', 'AbortError');
+    }
+
     const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
@@ -172,25 +206,16 @@ const handleChatCompletionStream = async (
 
       try {
         const parsed = JSON.parse(data);
-        const choice = parsed.choices?.[0];
-        if (!choice) continue;
-
-        const delta = choice.delta?.content ?? choice.message?.content;
-        if (typeof delta === 'string') {
-          onStreamUpdate(delta);
-        } else if (Array.isArray(delta)) {
-          for (const part of delta) {
-            if (typeof part === 'string') {
-              onStreamUpdate(part);
-            } else if (part?.type === 'text' && typeof part.text === 'string') {
-              onStreamUpdate(part.text);
-            }
-          }
-        }
+        processStreamPayload(parsed, onStreamUpdate);
       } catch (error) {
         console.error('Failed to parse stream chunk', error, data);
       }
     }
+  }
+
+  const finalText = decoder.decode();
+  if (finalText) {
+    buffer += finalText;
   }
 
   const remaining = buffer.trim();
@@ -199,21 +224,7 @@ const handleChatCompletionStream = async (
     if (data && data !== '[DONE]') {
       try {
         const parsed = JSON.parse(data);
-        const choice = parsed.choices?.[0];
-        if (choice) {
-          const delta = choice.delta?.content ?? choice.message?.content;
-          if (typeof delta === 'string') {
-            onStreamUpdate(delta);
-          } else if (Array.isArray(delta)) {
-            for (const part of delta) {
-              if (typeof part === 'string') {
-                onStreamUpdate(part);
-              } else if (part?.type === 'text' && typeof part.text === 'string') {
-                onStreamUpdate(part.text);
-              }
-            }
-          }
-        }
+        processStreamPayload(parsed, onStreamUpdate);
       } catch (error) {
         console.error('Failed to parse final stream chunk', error, data);
       }
@@ -227,6 +238,9 @@ export const generateSubtitles = async ({
   model,
   settings,
   onStreamUpdate,
+  onStreamComplete,
+  onStreamError,
+  signal,
 }: GenerateSubtitlesParams): Promise<void> => {
   const systemInstruction = lang === 'zh' ? PROMPT_ZH : PROMPT_EN;
 
@@ -243,6 +257,7 @@ export const generateSubtitles = async ({
           'Content-Type': 'application/json',
           Authorization: `Bearer ${settings.apiKey}`,
         },
+        signal,
         body: JSON.stringify({
           model,
           stream: true,
@@ -258,13 +273,14 @@ export const generateSubtitles = async ({
         throw new Error(`API Error: ${response.status} ${response.statusText} - ${errorText}`);
       }
 
-      await handleChatCompletionStream(response, onStreamUpdate);
+      await handleChatCompletionStream(response, onStreamUpdate, { signal });
     } else {
       const response = await fetch('/api/generate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
+        signal,
         body: JSON.stringify({ text, lang, model }),
       });
 
@@ -273,13 +289,23 @@ export const generateSubtitles = async ({
         throw new Error(`API Error: ${response.status} ${response.statusText} - ${errorText}`);
       }
 
-      await handleChatCompletionStream(response, onStreamUpdate);
+      await handleChatCompletionStream(response, onStreamUpdate, { signal });
     }
+
+    onStreamComplete?.();
   } catch (error) {
-    console.error('Error during subtitle generation:', error);
-    if (error instanceof Error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
       throw error;
     }
-    throw new Error('An unknown error occurred while communicating with the AI service.');
+
+    console.error('Error during subtitle generation:', error);
+    if (error instanceof Error) {
+      onStreamError?.(error);
+      throw error;
+    }
+
+    const fallbackError = new Error('An unknown error occurred while communicating with the AI service.');
+    onStreamError?.(fallbackError);
+    throw fallbackError;
   }
 };

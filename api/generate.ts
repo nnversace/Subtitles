@@ -201,7 +201,10 @@ export default async function handler(req: Request): Promise<Response> {
     return new Response(stream, {
       headers: {
         'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
         'X-Content-Type-Options': 'nosniff',
+        Connection: 'keep-alive',
+        'Transfer-Encoding': 'chunked',
       }
     });
 

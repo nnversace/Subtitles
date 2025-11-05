@@ -132,6 +132,7 @@ const App: React.FC = () => {
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [selectedModel, setSelectedModel] = useState<string>('');
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const [language, setLanguage] = useState<Language>(() => (localStorage.getItem('language') as Language) || 'zh');
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('theme') as Theme) || 'light');
@@ -195,13 +196,20 @@ const App: React.FC = () => {
 
   const handleGenerate = useCallback(async () => {
     if (!copywriting.trim() || isLoading || !selectedModel) return;
-    
+
     // FIX: Updated API Key check to be more robust.
     if (settings.useClientSide && (!settings.apiKey || !settings.apiUrl)) {
       setError("API Key and API URL are required for client-side requests. Please set them in the settings.");
       setIsSettingsModalOpen(true);
       return;
     }
+
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     setIsLoading(true);
     setError(null);
@@ -210,43 +218,70 @@ const App: React.FC = () => {
 
     try {
       await generateSubtitles({
-        text: copywriting, 
-        lang: language, 
+        text: copywriting,
+        lang: language,
         model: selectedModel,
         settings,
         onStreamUpdate: (chunk) => {
           setSubtitles(prev => prev + chunk);
           subtitlesRef.current += chunk;
-        }
+        },
+        onStreamComplete: () => {
+          if (!subtitlesRef.current) {
+            return;
+          }
+
+          const newHistoryItem: HistoryItem = {
+            id: Date.now(),
+            copywriting,
+            subtitles: subtitlesRef.current,
+          };
+
+          setHistory(prevHistory => {
+            const updatedHistory = [newHistoryItem, ...prevHistory].slice(0, 50);
+            localStorage.setItem('subtitleHistory', JSON.stringify(updatedHistory));
+            return updatedHistory;
+          });
+        },
+        onStreamError: (streamError) => {
+          setError(streamError.message);
+        },
+        signal: controller.signal,
       });
-
-      if (subtitlesRef.current) {
-        const newHistoryItem: HistoryItem = {
-          id: Date.now(),
-          copywriting,
-          subtitles: subtitlesRef.current,
-        };
-        setHistory(prevHistory => {
-          const updatedHistory = [newHistoryItem, ...prevHistory].slice(0, 50); // Keep max 50 items
-          localStorage.setItem('subtitleHistory', JSON.stringify(updatedHistory));
-          return updatedHistory;
-        });
-      }
-
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
-      setError(errorMessage);
-      console.error(err);
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        console.debug('Subtitle generation aborted');
+      } else {
+        const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
+        setError(errorMessage);
+        console.error(err);
+      }
     } finally {
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+      }
       setIsLoading(false);
     }
   }, [copywriting, isLoading, language, selectedModel, settings]);
 
   const handleClear = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
     setCopywriting('');
     setSubtitles('');
     setError(null);
+    subtitlesRef.current = '';
   };
+
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
 
   const handleClearHistory = () => {
     setHistory([]);
