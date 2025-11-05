@@ -244,7 +244,7 @@ export const generateSubtitles = async ({
     } else {
       // Client-side logic for OpenAI-compatible models
       const prompt = lang === 'zh' ? PROMPT_ZH : PROMPT_EN;
-      const endpoint = `${(settings.openaiProxyUrl || 'https://api.openai.com').replace(/\/$/, '')}/v1/chat/completions`;
+      const endpoint = `${(settings.openaiProxyUrl || 'https://api.openai.com/v1').replace(/\/$/, '')}/chat/completions`;
 
       try {
           const openaiResponse = await fetch(endpoint, {

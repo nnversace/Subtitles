@@ -7,7 +7,7 @@
 // IMPORTANT: API keys and URLs are read from the server's environment variables.
 // They are NOT exposed to the client.
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_API_URL = process.env.OPENAI_API_URL || 'https://api.openai.com';
+const OPENAI_API_URL = process.env.OPENAI_API_URL || 'https://api.openai.com/v1';
 
 
 if (!OPENAI_API_KEY) {
@@ -160,7 +160,7 @@ export default async function handler(req: Request): Promise<Response> {
     }
     
     const prompt = lang === 'zh' ? PROMPT_ZH : PROMPT_EN;
-    const endpoint = `${OPENAI_API_URL.replace(/\/$/, '')}/v1/chat/completions`;
+    const endpoint = `${OPENAI_API_URL.replace(/\/$/, '')}/chat/completions`;
 
     const openaiResponse = await fetch(endpoint, {
       method: 'POST',
