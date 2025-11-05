@@ -6,8 +6,6 @@ import { SubtitleOutput } from './components/SubtitleOutput';
 import { MagicIcon } from './components/icons/MagicIcon';
 import { generateSubtitles } from './services/geminiService';
 import { HistoryPanel } from './components/HistoryPanel';
-import { SettingsModal, AppSettings } from './components/SettingsModal';
-import { ModelSelector } from './components/ModelSelector';
 
 // Add mammoth to the window scope for TypeScript
 declare var mammoth: any;
@@ -44,26 +42,6 @@ const translations = {
     toggleLanguage: "切换中文",
     uploadTooltip: "Upload from file",
     uploadError: "Failed to read file.",
-    settings: "Settings",
-    model: "AI Model",
-    settingsTitle: "Settings",
-    apiKey: "API Key",
-    apiKeyPlaceholder: "Enter your OpenAI API Key",
-    apiUrl: "API URL",
-    apiUrlPlaceholder: "e.g., https://api.openai.com/v1",
-    apiUrlHint: "The base URL for your API provider, including the /v1 path.",
-    useClientSide: "Use Client-side Request Mode",
-    useClientSideHint: "Requests will be sent directly from your browser, improving response speed.",
-    modelList: "Model List",
-    modelListHint: "Manage the models displayed in the dropdown menu.",
-    modelSelectorPlaceholder: "Select or add models...",
-    searchModelsPlaceholder: "Search models...",
-    connectivityCheck: "Connectivity Check",
-    test: "Test",
-    testing: "Testing...",
-    testSuccess: "Connection successful! Models loaded.",
-    testFailure: "Connection failed. Please check your API Key and URL.",
-    save: "Save",
   },
   zh: {
     title: "文案转字幕",
@@ -87,34 +65,7 @@ const translations = {
     toggleLanguage: "Switch to English",
     uploadTooltip: "从文件上传",
     uploadError: "读取文件失败。",
-    settings: "设置",
-    model: "AI 模型",
-    settingsTitle: "设置",
-    apiKey: "API Key",
-    apiKeyPlaceholder: "请输入你的 OpenAI API Key",
-    apiUrl: "API 地址",
-    apiUrlPlaceholder: "例如 https://api.openai.com/v1",
-    apiUrlHint: "您的 API 服务商的基础 URL，通常需要包含 /v1 路径。",
-    useClientSide: "使用客户端请求模式",
-    useClientSideHint: "客户端请求模式将从浏览器直接发起对话请求，可提升响应速度。",
-    modelList: "模型列表",
-    modelListHint: "管理在下拉菜单中展示的模型。",
-    modelSelectorPlaceholder: "选择或添加模型...",
-    searchModelsPlaceholder: "搜索模型...",
-    connectivityCheck: "连通性检查",
-    test: "检查",
-    testing: "检查中...",
-    testSuccess: "连接成功！模型已加载。",
-    testFailure: "连接失败，请检查 API Key 与代理地址是否正确填写。",
-    save: "保存",
   },
-};
-
-const defaultSettings: AppSettings = {
-  apiKey: '',
-  openaiProxyUrl: 'https://api.openai.com/v1',
-  useClientSide: true,
-  selectedModels: ['gemini-2.5-pro-thinking', 'gemini-2.5-pro', 'grok-4'],
 };
 
 const App: React.FC = () => {
@@ -128,31 +79,6 @@ const App: React.FC = () => {
   const [language, setLanguage] = useState<Language>(() => (localStorage.getItem('language') as Language) || 'zh');
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('theme') as Theme) || 'light');
   
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [settings, setSettings] = useState<AppSettings>(() => {
-    try {
-      const savedSettings = localStorage.getItem('appSettings');
-      const parsed = savedSettings ? JSON.parse(savedSettings) : defaultSettings;
-      // Basic validation to ensure parsed data has the expected structure
-      if (parsed && typeof parsed.apiKey === 'string' && Array.isArray(parsed.selectedModels)) {
-        return { ...defaultSettings, ...parsed };
-      }
-      return defaultSettings;
-    } catch (e) {
-      return defaultSettings;
-    }
-  });
-  const [selectedModel, setSelectedModel] = useState<string>(() => {
-     try {
-      const savedSettings = localStorage.getItem('appSettings');
-      const parsed = savedSettings ? JSON.parse(savedSettings) as AppSettings : defaultSettings;
-      return (parsed.selectedModels && parsed.selectedModels[0]) || '';
-    } catch (e) {
-      return defaultSettings.selectedModels[0] || '';
-    }
-  });
-
-
   const fileInputRef = useRef<HTMLInputElement>(null);
   const subtitlesRef = useRef<string>('');
   const texts = translations[language];
@@ -181,15 +107,6 @@ const App: React.FC = () => {
     }
   }, [theme]);
   
-  useEffect(() => {
-    localStorage.setItem('appSettings', JSON.stringify(settings));
-    // Ensure selected model is still valid
-    if (!settings.selectedModels.includes(selectedModel) || !selectedModel) {
-      setSelectedModel(settings.selectedModels[0] || '');
-    }
-  }, [settings, selectedModel]);
-
-
   const handleToggleTheme = () => {
     setTheme(prevTheme => prevTheme === 'light' ? 'dark' : 'light');
   };
@@ -199,11 +116,7 @@ const App: React.FC = () => {
   };
 
   const handleGenerate = useCallback(async () => {
-    if (!copywriting.trim() || isLoading || !selectedModel) return;
-    if (settings.useClientSide && !settings.apiKey) {
-      setError('API Key is not set. Please configure it in the settings.');
-      return;
-    }
+    if (!copywriting.trim() || isLoading) return;
 
     setIsLoading(true);
     setError(null);
@@ -214,8 +127,6 @@ const App: React.FC = () => {
       await generateSubtitles({
         text: copywriting, 
         lang: language, 
-        model: selectedModel,
-        settings: settings,
         onStreamUpdate: (chunk) => {
           setSubtitles(prev => prev + chunk);
           subtitlesRef.current += chunk;
@@ -241,7 +152,7 @@ const App: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [copywriting, isLoading, language, selectedModel, settings]);
+  }, [copywriting, isLoading, language]);
 
   const handleClear = () => {
     setCopywriting('');
@@ -306,11 +217,6 @@ const App: React.FC = () => {
       event.target.value = '';
     }
   };
-  
-  const handleSaveSettings = (newSettings: AppSettings) => {
-    setSettings(newSettings);
-    setIsSettingsOpen(false);
-  }
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 flex flex-col transition-colors duration-300">
@@ -320,10 +226,8 @@ const App: React.FC = () => {
         theme={theme}
         onToggleTheme={handleToggleTheme}
         onToggleLanguage={handleToggleLanguage}
-        onOpenSettings={() => setIsSettingsOpen(true)}
         toggleThemeTooltip={texts.toggleTheme}
         toggleLanguageTooltip={texts.toggleLanguage}
-        settingsTooltip={texts.settings}
       />
       <main className="flex-grow w-full max-w-6xl mx-auto p-4 md:p-6 lg:p-8 flex flex-col">
         <div className="flex-grow grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 mb-24 min-h-0">
@@ -335,11 +239,6 @@ const App: React.FC = () => {
             disabled={isLoading}
             onUploadClick={handleUploadClick}
             uploadTooltip={texts.uploadTooltip}
-            modelValue={selectedModel}
-            onModelChange={setSelectedModel}
-            models={settings.selectedModels}
-            modelDisabled={isLoading}
-            modelLabel={texts.model}
           />
           <SubtitleOutput
             label={texts.generatedSubtitles}
@@ -373,7 +272,7 @@ const App: React.FC = () => {
               
               <button
                 onClick={handleGenerate}
-                disabled={!copywriting.trim() || isLoading || !selectedModel}
+                disabled={!copywriting.trim() || isLoading}
                 className="flex items-center justify-center gap-2 px-4 py-3 text-sm sm:px-6 sm:text-base font-semibold text-white bg-blue-600 rounded-xl shadow-sm hover:bg-blue-500 disabled:bg-gray-400 dark:disabled:bg-gray-500 disabled:cursor-not-allowed transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-50 dark:focus:ring-offset-gray-900 focus:ring-blue-500"
               >
                 <MagicIcon className="w-5 h-5" />
@@ -399,33 +298,6 @@ const App: React.FC = () => {
           title: texts.historyPanelTitle,
           empty: texts.historyEmpty,
           clear: texts.clearHistory,
-          close: texts.close,
-        }}
-      />
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        settings={settings}
-        onSave={handleSaveSettings}
-        texts={{
-          title: texts.settingsTitle,
-          apiKey: texts.apiKey,
-          apiKeyPlaceholder: texts.apiKeyPlaceholder,
-          apiUrl: texts.apiUrl,
-          apiUrlPlaceholder: texts.apiUrlPlaceholder,
-          apiUrlHint: texts.apiUrlHint,
-          useClientSide: texts.useClientSide,
-          useClientSideHint: texts.useClientSideHint,
-          modelList: texts.modelList,
-          modelListHint: texts.modelListHint,
-          modelSelectorPlaceholder: texts.modelSelectorPlaceholder,
-          searchModelsPlaceholder: texts.searchModelsPlaceholder,
-          connectivityCheck: texts.connectivityCheck,
-          test: texts.test,
-          testing: texts.testing,
-          testSuccess: texts.testSuccess,
-          testFailure: texts.testFailure,
-          save: texts.save,
           close: texts.close,
         }}
       />

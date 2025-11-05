@@ -1,5 +1,5 @@
 
-import { AppSettings } from '../components/SettingsModal';
+import { GoogleGenAI } from '@google/genai';
 
 const PROMPT_ZH = `
 Your core mission is to convert any input text (like scripts or articles) into pure, rhythm-focused "plain text subtitles". You must strictly follow all steps and principles to produce the required format.
@@ -131,147 +131,34 @@ Now, process the following text:
 interface GenerateSubtitlesParams {
   text: string;
   lang: 'en' | 'zh';
-  model: string;
-  settings: AppSettings;
   onStreamUpdate: (chunk: string) => void;
 }
-
-const handleOpenAIStream = async (
-  response: Response,
-  onStreamUpdate: (chunk: string) => void
-) => {
-    if (!response.body) {
-        throw new Error('Response body is empty.');
-    }
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-            if (line.trim() === 'data: [DONE]') {
-                return;
-            }
-            if (line.startsWith('data: ')) {
-                const jsonStr = line.substring(6);
-                try {
-                    const parsed = JSON.parse(jsonStr);
-                    const content = parsed.choices[0]?.delta?.content;
-                    if (content) {
-                        onStreamUpdate(content);
-                    }
-                } catch (e) {
-                    console.error('Could not parse OpenAI stream chunk:', jsonStr);
-                }
-            }
-        }
-    }
-};
-
-const handleRawStream = async (
-  response: Response,
-  onStreamUpdate: (chunk: string) => void
-) => {
-    if (!response.body) {
-      throw new Error('Response body is empty.');
-    }
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-            break;
-        }
-        const chunk = decoder.decode(value, { stream: true });
-        onStreamUpdate(chunk);
-    }
-};
 
 export const generateSubtitles = async ({
   text,
   lang,
-  model,
-  settings,
   onStreamUpdate,
 }: GenerateSubtitlesParams): Promise<void> => {
-  if (settings.useClientSide) {
-    if (!settings.apiKey) {
-      throw new Error("API Key is not set. Please configure it in the settings.");
-    }
-    
-    // Always use the OpenAI-compatible API for client-side requests.
-    // This resolves the error caused by trying to use an OpenAI key with the native Gemini SDK.
+  try {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const model = 'gemini-2.5-pro';
     const prompt = lang === 'zh' ? PROMPT_ZH : PROMPT_EN;
-    const endpoint = `${(settings.openaiProxyUrl || 'https://api.openai.com/v1').replace(/\/$/, '')}/chat/completions`;
+    
+    const fullPrompt = `${prompt}\n\n${text}`;
 
-    try {
-        const openaiResponse = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${settings.apiKey}`
-          },
-          body: JSON.stringify({
-              model: model,
-              messages: [
-                  { role: 'system', content: prompt },
-                  { role: 'user', content: text }
-              ],
-              stream: true,
-          }),
-        });
-        
-        if (!openaiResponse.ok) {
-          const errorText = await openaiResponse.text();
-          throw new Error(`API error (${openaiResponse.status}): ${errorText}`);
-        }
-        
-        await handleOpenAIStream(openaiResponse, onStreamUpdate);
+    const response = await ai.models.generateContentStream({
+      model: model,
+      contents: fullPrompt,
+    });
 
-    } catch(error) {
-        console.error("Error during client-side subtitle generation:", error);
-        if (error instanceof Error) {
-          throw error;
-        }
-        throw new Error("An unknown error occurred while communicating with the AI service.");
+    for await (const chunk of response) {
+      onStreamUpdate(chunk.text);
     }
-
-  } else {
-    // Server-side logic
-    try {
-      const response = await fetch('/api/generate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ text, lang, model }),
-      });
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        const detail = errorText 
-          ? `Server returned: "${errorText}"` 
-          : 'The server returned an empty error response. Check server logs or your network connection.';
-        throw new Error(`Request failed with status ${response.status}. ${detail}`);
-      }
-      
-      await handleRawStream(response, onStreamUpdate);
-
-    } catch (error) {
-      console.error("Error during server-side subtitle generation:", error);
-      if (error instanceof Error) {
-         throw error;
-      }
-      throw new Error("An unknown error occurred while communicating with the server.");
+  } catch (error) {
+    console.error("Error during subtitle generation:", error);
+    if (error instanceof Error) {
+      throw error;
     }
+    throw new Error("An unknown error occurred while communicating with the AI service.");
   }
 };
