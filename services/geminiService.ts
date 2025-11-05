@@ -1,4 +1,8 @@
 
+// FIX: Import GoogleGenAI to use the Gemini API.
+import { GoogleGenAI } from '@google/genai';
+import { AppSettings } from '../components/SettingsModal';
+
 const PROMPT_ZH = `
 Your core mission is to convert any input text (like scripts or articles) into pure, rhythm-focused "plain text subtitles". You must strictly follow all steps and principles to produce the required format.
 
@@ -130,62 +134,177 @@ interface GenerateSubtitlesParams {
   text: string;
   lang: 'en' | 'zh';
   model: string;
+  settings: AppSettings;
   onStreamUpdate: (chunk: string) => void;
 }
 
-const handleStreamResponse = async (
+const handleOpenAIStream = async (
   response: Response,
   onStreamUpdate: (chunk: string) => void
 ) => {
-  if (!response.body) {
-    throw new Error('Response body is empty.');
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) {
-      break;
+    if (!response.body) {
+        throw new Error('Response body is empty.');
     }
-    const chunk = decoder.decode(value, { stream: true });
-    onStreamUpdate(chunk);
-  }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+            if (line.trim() === 'data: [DONE]') {
+                return;
+            }
+            if (line.startsWith('data: ')) {
+                const jsonStr = line.substring(6);
+                try {
+                    const parsed = JSON.parse(jsonStr);
+                    const content = parsed.choices[0]?.delta?.content;
+                    if (content) {
+                        onStreamUpdate(content);
+                    }
+                } catch (e) {
+                    console.error('Could not parse OpenAI stream chunk:', jsonStr);
+                }
+            }
+        }
+    }
 };
 
+const handleRawStream = async (
+  response: Response,
+  onStreamUpdate: (chunk: string) => void
+) => {
+    if (!response.body) {
+      throw new Error('Response body is empty.');
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+            break;
+        }
+        const chunk = decoder.decode(value, { stream: true });
+        onStreamUpdate(chunk);
+    }
+};
 
+// FIX: Refactor to use the Gemini API for Gemini models and fallback to OpenAI API for others.
 export const generateSubtitles = async ({
   text,
   lang,
   model,
+  settings,
   onStreamUpdate,
 }: GenerateSubtitlesParams): Promise<void> => {
-  try {
-    const response = await fetch('/api/generate', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ text, lang, model }),
-    });
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      const detail = errorText 
-        ? `Server returned: "${errorText}"` 
-        : 'The server returned an empty error response. Check server logs or your network connection.';
-      throw new Error(`Request failed with status ${response.status}. ${detail}`);
+  if (settings.useClientSide) {
+    if (!settings.apiKey) {
+      throw new Error("API Key is not set. Please configure it in the settings.");
     }
 
-    await handleStreamResponse(response, onStreamUpdate);
+    if (model.startsWith('gemini-')) {
+      try {
+        const ai = new GoogleGenAI({ apiKey: settings.apiKey });
+        const prompt = lang === 'zh' ? PROMPT_ZH : PROMPT_EN;
+        
+        let effectiveModel = model;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const config: any = { systemInstruction: prompt };
 
-  } catch (error) {
-    console.error("Error during subtitle generation:", error);
-    if (error instanceof Error) {
-       throw error;
+        if (model === 'gemini-2.5-pro-thinking') {
+          effectiveModel = 'gemini-2.5-pro';
+          config.thinkingConfig = { thinkingBudget: 32768 }; // max for 2.5 pro
+        }
+
+        const responseStream = await ai.models.generateContentStream({
+            model: effectiveModel,
+            contents: text,
+            config: config,
+        });
+        
+        for await (const chunk of responseStream) {
+            onStreamUpdate(chunk.text);
+        }
+      } catch (error) {
+          console.error("Error during client-side Gemini generation:", error);
+          if (error instanceof Error) {
+            throw error;
+          }
+          throw new Error("An unknown error occurred while communicating with the Gemini service.");
+      }
+    } else {
+      // Client-side logic for OpenAI-compatible models
+      const prompt = lang === 'zh' ? PROMPT_ZH : PROMPT_EN;
+      const endpoint = `${(settings.openaiProxyUrl || 'https://api.openai.com').replace(/\/$/, '')}/v1/chat/completions`;
+
+      try {
+          const openaiResponse = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${settings.apiKey}`
+            },
+            body: JSON.stringify({
+                model: model,
+                messages: [
+                    { role: 'system', content: prompt },
+                    { role: 'user', content: text }
+                ],
+                stream: true,
+            }),
+          });
+          
+          if (!openaiResponse.ok) {
+            const errorText = await openaiResponse.text();
+            throw new Error(`API error (${openaiResponse.status}): ${errorText}`);
+          }
+          
+          await handleOpenAIStream(openaiResponse, onStreamUpdate);
+
+      } catch(error) {
+          console.error("Error during client-side subtitle generation:", error);
+          if (error instanceof Error) {
+            throw error;
+          }
+          throw new Error("An unknown error occurred while communicating with the AI service.");
+      }
     }
-    throw new Error("An unknown error occurred while communicating with the server.");
+  } else {
+    // Server-side logic
+    try {
+      const response = await fetch('/api/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ text, lang, model }),
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        const detail = errorText 
+          ? `Server returned: "${errorText}"` 
+          : 'The server returned an empty error response. Check server logs or your network connection.';
+        throw new Error(`Request failed with status ${response.status}. ${detail}`);
+      }
+      
+      await handleRawStream(response, onStreamUpdate);
+
+    } catch (error) {
+      console.error("Error during server-side subtitle generation:", error);
+      if (error instanceof Error) {
+         throw error;
+      }
+      throw new Error("An unknown error occurred while communicating with the server.");
+    }
   }
 };

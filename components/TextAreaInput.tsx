@@ -1,7 +1,7 @@
-
 import React from 'react';
 import { IconButton } from './IconButton';
 import { UploadIcon } from './icons/UploadIcon';
+import { ModelSelector } from './ModelSelector';
 
 interface TextAreaInputProps {
   label: string;
@@ -11,18 +11,45 @@ interface TextAreaInputProps {
   disabled: boolean;
   onUploadClick: () => void;
   uploadTooltip: string;
+  modelValue: string;
+  onModelChange: (value: string) => void;
+  models: string[];
+  modelDisabled: boolean;
+  modelLabel: string;
 }
 
-export const TextAreaInput: React.FC<TextAreaInputProps> = ({ label, value, onChange, placeholder, disabled, onUploadClick, uploadTooltip }) => {
+export const TextAreaInput: React.FC<TextAreaInputProps> = ({ 
+  label, 
+  value, 
+  onChange, 
+  placeholder, 
+  disabled, 
+  onUploadClick, 
+  uploadTooltip,
+  modelValue,
+  onModelChange,
+  models,
+  modelDisabled,
+  modelLabel
+}) => {
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl p-4 flex flex-col h-full shadow-sm border border-gray-200 dark:border-gray-700 transition-colors duration-300">
       <div className="flex justify-between items-center mb-2">
         <label htmlFor="copywriting-input" className="text-sm font-medium text-gray-600 dark:text-gray-400">
           {label}
         </label>
-        <IconButton onClick={onUploadClick} tooltip={uploadTooltip}>
-          <UploadIcon className="w-5 h-5" />
-        </IconButton>
+        <div className="flex items-center gap-2">
+           <ModelSelector
+              value={modelValue}
+              onChange={onModelChange}
+              disabled={modelDisabled}
+              models={models}
+              label={modelLabel}
+            />
+            <IconButton onClick={onUploadClick} tooltip={uploadTooltip}>
+              <UploadIcon className="w-5 h-5" />
+            </IconButton>
+        </div>
       </div>
       <textarea
         id="copywriting-input"

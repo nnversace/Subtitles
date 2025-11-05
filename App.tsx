@@ -9,6 +9,9 @@ import { HistoryPanel } from './components/HistoryPanel';
 import { SettingsModal, AppSettings } from './components/SettingsModal';
 import { ModelSelector } from './components/ModelSelector';
 
+// Add mammoth to the window scope for TypeScript
+declare var mammoth: any;
+
 export interface HistoryItem {
   id: number;
   copywriting: string;
@@ -44,12 +47,21 @@ const translations = {
     settings: "Settings",
     model: "AI Model",
     settingsTitle: "Settings",
+    apiKey: "API Key",
+    apiKeyPlaceholder: "Enter your OpenAI API Key",
+    apiUrl: "API URL",
+    apiUrlPlaceholder: "e.g., https://api.openai.com",
+    apiUrlHint: "Must include http(s)://. Leave default if unsure.",
+    useClientSide: "Use Client-side Request Mode",
+    useClientSideHint: "Requests will be sent directly from your browser, improving response speed.",
     modelList: "Model List",
     modelListHint: "Manage the models displayed in the dropdown menu.",
-    addModel: "Add Model",
-    add: "Add",
-    modelNamePlaceholder: "Enter model name...",
-    modelExistsError: "Model already exists in the list.",
+    modelSelectorPlaceholder: "Select models...",
+    connectivityCheck: "Connectivity Check",
+    test: "Test",
+    testing: "Testing...",
+    testSuccess: "Connection successful! Models loaded.",
+    testFailure: "Connection failed. Please check your API Key and URL.",
     save: "Save",
   },
   zh: {
@@ -77,17 +89,29 @@ const translations = {
     settings: "设置",
     model: "AI 模型",
     settingsTitle: "设置",
+    apiKey: "API Key",
+    apiKeyPlaceholder: "请输入你的 OpenAI API Key",
+    apiUrl: "API 地址",
+    apiUrlPlaceholder: "例如 https://api.openai.com",
+    apiUrlHint: "除默认地址外，必须包含 http(s)://",
+    useClientSide: "使用客户端请求模式",
+    useClientSideHint: "客户端请求模式将从浏览器直接发起对话请求，可提升响应速度。",
     modelList: "模型列表",
     modelListHint: "管理在下拉菜单中展示的模型。",
-    addModel: "添加模型",
-    add: "添加",
-    modelNamePlaceholder: "输入模型名称...",
-    modelExistsError: "模型已存在于列表中。",
+    modelSelectorPlaceholder: "选择模型...",
+    connectivityCheck: "连通性检查",
+    test: "检查",
+    testing: "检查中...",
+    testSuccess: "连接成功！模型已加载。",
+    testFailure: "连接失败，请检查 API Key 与代理地址是否正确填写。",
     save: "保存",
   },
 };
 
 const defaultSettings: AppSettings = {
+  apiKey: '',
+  openaiProxyUrl: 'https://api.openai.com',
+  useClientSide: true,
   selectedModels: ['gemini-2.5-pro-thinking', 'gemini-2.5-pro', 'grok-4'],
 };
 
@@ -108,8 +132,8 @@ const App: React.FC = () => {
       const savedSettings = localStorage.getItem('appSettings');
       const parsed = savedSettings ? JSON.parse(savedSettings) : defaultSettings;
       // Basic validation to ensure parsed data has the expected structure
-      if (parsed && Array.isArray(parsed.selectedModels)) {
-        return parsed;
+      if (parsed && typeof parsed.apiKey === 'string' && Array.isArray(parsed.selectedModels)) {
+        return { ...defaultSettings, ...parsed };
       }
       return defaultSettings;
     } catch (e) {
@@ -174,6 +198,10 @@ const App: React.FC = () => {
 
   const handleGenerate = useCallback(async () => {
     if (!copywriting.trim() || isLoading || !selectedModel) return;
+    if (settings.useClientSide && !settings.apiKey) {
+      setError('API Key is not set. Please configure it in the settings.');
+      return;
+    }
 
     setIsLoading(true);
     setError(null);
@@ -185,6 +213,7 @@ const App: React.FC = () => {
         text: copywriting, 
         lang: language, 
         model: selectedModel,
+        settings: settings,
         onStreamUpdate: (chunk) => {
           setSubtitles(prev => prev + chunk);
           subtitlesRef.current += chunk;
@@ -210,7 +239,7 @@ const App: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [copywriting, isLoading, language, selectedModel]);
+  }, [copywriting, isLoading, language, selectedModel, settings]);
 
   const handleClear = () => {
     setCopywriting('');
@@ -238,16 +267,38 @@ const App: React.FC = () => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const text = e.target?.result as string;
-      setCopywriting(text);
-      setError(null);
-    };
-    reader.onerror = () => {
-      setError(texts.uploadError);
-    };
-    reader.readAsText(file);
+    if (file.name.endsWith('.docx')) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const arrayBuffer = e.target?.result;
+        if (arrayBuffer) {
+          mammoth.extractRawText({ arrayBuffer: arrayBuffer })
+            .then((result: { value: string; }) => {
+              setCopywriting(result.value);
+              setError(null);
+            })
+            .catch((err: Error) => {
+              console.error("Error parsing .docx file:", err);
+              setError(texts.uploadError);
+            });
+        }
+      };
+      reader.onerror = () => {
+        setError(texts.uploadError);
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const text = e.target?.result as string;
+        setCopywriting(text);
+        setError(null);
+      };
+      reader.onerror = () => {
+        setError(texts.uploadError);
+      };
+      reader.readAsText(file);
+    }
 
     if (event.target) {
       event.target.value = '';
@@ -273,7 +324,7 @@ const App: React.FC = () => {
         settingsTooltip={texts.settings}
       />
       <main className="flex-grow w-full max-w-6xl mx-auto p-4 md:p-6 lg:p-8 flex flex-col">
-        <div className="flex-grow grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 mb-24">
+        <div className="flex-grow grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 mb-24 min-h-0">
           <TextAreaInput
             label={texts.yourScript}
             value={copywriting}
@@ -282,6 +333,11 @@ const App: React.FC = () => {
             disabled={isLoading}
             onUploadClick={handleUploadClick}
             uploadTooltip={texts.uploadTooltip}
+            modelValue={selectedModel}
+            onModelChange={setSelectedModel}
+            models={settings.selectedModels}
+            modelDisabled={isLoading}
+            modelLabel={texts.model}
           />
           <SubtitleOutput
             label={texts.generatedSubtitles}
@@ -300,7 +356,7 @@ const App: React.FC = () => {
         ref={fileInputRef}
         onChange={handleFileChange}
         className="hidden"
-        accept=".txt,.md,.srt,.vtt"
+        accept=".txt,.md,.srt,.vtt,.docx"
       />
       <div className="fixed bottom-0 left-0 right-0 bg-gray-50/80 dark:bg-gray-900/80 backdrop-blur-sm">
         <div className="container mx-auto p-4 border-t border-gray-200 dark:border-gray-700">
@@ -312,16 +368,6 @@ const App: React.FC = () => {
               >
                 {texts.history}
               </button>
-              
-              <div className="flex items-center gap-x-1 sm:gap-x-2 p-1 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
-                <ModelSelector
-                  label={texts.model}
-                  value={selectedModel}
-                  onChange={setSelectedModel}
-                  disabled={isLoading}
-                  models={settings.selectedModels}
-                />
-              </div>
               
               <button
                 onClick={handleGenerate}
@@ -361,12 +407,21 @@ const App: React.FC = () => {
         onSave={handleSaveSettings}
         texts={{
           title: texts.settingsTitle,
+          apiKey: texts.apiKey,
+          apiKeyPlaceholder: texts.apiKeyPlaceholder,
+          apiUrl: texts.apiUrl,
+          apiUrlPlaceholder: texts.apiUrlPlaceholder,
+          apiUrlHint: texts.apiUrlHint,
+          useClientSide: texts.useClientSide,
+          useClientSideHint: texts.useClientSideHint,
           modelList: texts.modelList,
           modelListHint: texts.modelListHint,
-          addModel: texts.addModel,
-          add: texts.add,
-          modelNamePlaceholder: texts.modelNamePlaceholder,
-          modelExistsError: texts.modelExistsError,
+          modelSelectorPlaceholder: texts.modelSelectorPlaceholder,
+          connectivityCheck: texts.connectivityCheck,
+          test: texts.test,
+          testing: texts.testing,
+          testSuccess: texts.testSuccess,
+          testFailure: texts.testFailure,
           save: texts.save,
           close: texts.close,
         }}
