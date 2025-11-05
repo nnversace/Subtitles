@@ -2,6 +2,7 @@
 import React from 'react';
 import { IconButton } from './IconButton';
 import { UploadIcon } from './icons/UploadIcon';
+import { ModelSelector } from './ModelSelector';
 
 interface TextAreaInputProps {
   label: string;
@@ -11,6 +12,9 @@ interface TextAreaInputProps {
   disabled: boolean;
   onUploadClick: () => void;
   uploadTooltip: string;
+  models: string[];
+  selectedModel: string;
+  onModelChange: (model: string) => void;
 }
 
 export const TextAreaInput: React.FC<TextAreaInputProps> = ({ 
@@ -21,6 +25,9 @@ export const TextAreaInput: React.FC<TextAreaInputProps> = ({
   disabled, 
   onUploadClick, 
   uploadTooltip,
+  models,
+  selectedModel,
+  onModelChange
 }) => {
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl p-4 flex flex-col h-full shadow-sm border border-gray-200 dark:border-gray-700 transition-colors duration-300">
@@ -29,6 +36,13 @@ export const TextAreaInput: React.FC<TextAreaInputProps> = ({
           {label}
         </label>
         <div className="flex items-center gap-2">
+            <ModelSelector
+              value={selectedModel}
+              onChange={onModelChange}
+              disabled={disabled}
+              models={models}
+              label="Select Model"
+            />
             <IconButton onClick={onUploadClick} tooltip={uploadTooltip}>
               <UploadIcon className="w-5 h-5" />
             </IconButton>

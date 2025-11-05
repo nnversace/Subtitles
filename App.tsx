@@ -6,6 +6,7 @@ import { SubtitleOutput } from './components/SubtitleOutput';
 import { MagicIcon } from './components/icons/MagicIcon';
 import { generateSubtitles } from './services/geminiService';
 import { HistoryPanel } from './components/HistoryPanel';
+import { SettingsModal, AppSettings } from './components/SettingsModal';
 
 // Add mammoth to the window scope for TypeScript
 declare var mammoth: any;
@@ -34,14 +35,33 @@ const translations = {
     historyPanelTitle: "Generation History",
     historyEmpty: "Your generation history is empty.",
     clearHistory: "Clear History",
-    close: "Close",
     copyTooltip: "Copy to clipboard",
     copiedTooltip: "Copied!",
     errorPrefix: "Error: ",
     toggleTheme: "Toggle theme",
     toggleLanguage: "切换中文",
+    openSettings: "Settings",
     uploadTooltip: "Upload from file",
     uploadError: "Failed to read file.",
+    settings: {
+      title: "Settings",
+      apiKey: "API Key",
+      apiKeyPlaceholder: "Enter your Gemini API Key",
+      useClientSide: "Use client-side request mode",
+      useClientSideHint: "Client-side mode sends requests directly from the browser. Required for model testing.",
+      modelList: "Model List",
+      modelListHint: "Manage models displayed in the dropdown.",
+      modelSelectorPlaceholder: "Add models to use...",
+      searchModelsPlaceholder: "Search models...",
+      // FIX: Add missing 'connectivityCheck' property to fix TypeScript error.
+      connectivityCheck: "Connectivity Check",
+      test: "Test",
+      testing: "Testing...",
+      testSuccess: "Success",
+      testFailure: "Failed",
+      save: "Save",
+      close: "Close",
+    }
   },
   zh: {
     title: "文案转字幕",
@@ -57,15 +77,41 @@ const translations = {
     historyPanelTitle: "生成历史",
     historyEmpty: "您的生成历史为空。",
     clearHistory: "清除历史",
-    close: "关闭",
     copyTooltip: "复制到剪贴板",
     copiedTooltip: "已复制！",
     errorPrefix: "错误：",
     toggleTheme: "切换主题",
     toggleLanguage: "Switch to English",
+    openSettings: "设置",
     uploadTooltip: "从文件上传",
     uploadError: "读取文件失败。",
+    settings: {
+      title: "设置",
+      apiKey: "API Key",
+      apiKeyPlaceholder: "请输入您的 Gemini API Key",
+      useClientSide: "使用客户端请求模式",
+      useClientSideHint: "客户端请求模式将从浏览器直接发起对话请求。模型测试需要开启此项。",
+      modelList: "模型列表",
+      modelListHint: "管理在下拉菜单中展示的模型。",
+      modelSelectorPlaceholder: "请添加需要使用的模型...",
+      searchModelsPlaceholder: "搜索模型...",
+      // FIX: Add missing 'connectivityCheck' property to fix TypeScript error.
+      connectivityCheck: "连通性检查",
+      test: "检查",
+      testing: "检查中...",
+      testSuccess: "成功",
+      testFailure: "失败",
+      save: "保存",
+      close: "关闭",
+    }
   },
+};
+
+// FIX: Update settings to be Gemini-specific, removing openaiProxyUrl and updating default models.
+const defaultSettings: AppSettings = {
+  apiKey: process.env.API_KEY || '',
+  useClientSide: true,
+  selectedModels: ['gemini-2.5-pro', 'gemini-flash-latest'],
 };
 
 const App: React.FC = () => {
@@ -75,6 +121,9 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [settings, setSettings] = useState<AppSettings>(defaultSettings);
+  const [selectedModel, setSelectedModel] = useState<string>('');
 
   const [language, setLanguage] = useState<Language>(() => (localStorage.getItem('language') as Language) || 'zh');
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('theme') as Theme) || 'light');
@@ -85,12 +134,21 @@ const App: React.FC = () => {
 
   useEffect(() => {
     try {
-      const savedHistory = localStorage.getItem('subtitleHistory');
-      if (savedHistory) {
-        setHistory(JSON.parse(savedHistory));
+      const savedSettings = localStorage.getItem('appSettings');
+      if (savedSettings) {
+        const parsedSettings = JSON.parse(savedSettings);
+        setSettings(parsedSettings);
+        if (parsedSettings.selectedModels?.length > 0) {
+          setSelectedModel(parsedSettings.selectedModels[0]);
+        }
+      } else {
+        setSettings(defaultSettings);
+        setSelectedModel(defaultSettings.selectedModels[0]);
       }
+      const savedHistory = localStorage.getItem('subtitleHistory');
+      if (savedHistory) setHistory(JSON.parse(savedHistory));
     } catch (error) {
-      console.error("Failed to parse history from localStorage", error);
+      console.error("Failed to parse settings or history from localStorage", error);
     }
   }, []);
 
@@ -107,6 +165,15 @@ const App: React.FC = () => {
     }
   }, [theme]);
   
+  const handleSaveSettings = (newSettings: AppSettings) => {
+    setSettings(newSettings);
+    localStorage.setItem('appSettings', JSON.stringify(newSettings));
+    if (newSettings.selectedModels && !newSettings.selectedModels.includes(selectedModel)) {
+      setSelectedModel(newSettings.selectedModels[0] || '');
+    }
+    setIsSettingsModalOpen(false);
+  };
+  
   const handleToggleTheme = () => {
     setTheme(prevTheme => prevTheme === 'light' ? 'dark' : 'light');
   };
@@ -116,7 +183,14 @@ const App: React.FC = () => {
   };
 
   const handleGenerate = useCallback(async () => {
-    if (!copywriting.trim() || isLoading) return;
+    if (!copywriting.trim() || isLoading || !selectedModel) return;
+    
+    // FIX: Updated API Key check to be more robust.
+    if (settings.useClientSide && !settings.apiKey) {
+      setError("API Key is required for client-side requests. Please set it in the settings.");
+      setIsSettingsModalOpen(true);
+      return;
+    }
 
     setIsLoading(true);
     setError(null);
@@ -127,6 +201,8 @@ const App: React.FC = () => {
       await generateSubtitles({
         text: copywriting, 
         lang: language, 
+        model: selectedModel,
+        settings,
         onStreamUpdate: (chunk) => {
           setSubtitles(prev => prev + chunk);
           subtitlesRef.current += chunk;
@@ -147,12 +223,13 @@ const App: React.FC = () => {
       }
 
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An unknown error occurred.');
+      const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
+      setError(errorMessage);
       console.error(err);
     } finally {
       setIsLoading(false);
     }
-  }, [copywriting, isLoading, language]);
+  }, [copywriting, isLoading, language, selectedModel, settings]);
 
   const handleClear = () => {
     setCopywriting('');
@@ -196,9 +273,7 @@ const App: React.FC = () => {
             });
         }
       };
-      reader.onerror = () => {
-        setError(texts.uploadError);
-      };
+      reader.onerror = () => setError(texts.uploadError);
       reader.readAsArrayBuffer(file);
     } else {
       const reader = new FileReader();
@@ -207,15 +282,11 @@ const App: React.FC = () => {
         setCopywriting(text);
         setError(null);
       };
-      reader.onerror = () => {
-        setError(texts.uploadError);
-      };
+      reader.onerror = () => setError(texts.uploadError);
       reader.readAsText(file);
     }
 
-    if (event.target) {
-      event.target.value = '';
-    }
+    if (event.target) event.target.value = '';
   };
 
   return (
@@ -226,8 +297,10 @@ const App: React.FC = () => {
         theme={theme}
         onToggleTheme={handleToggleTheme}
         onToggleLanguage={handleToggleLanguage}
+        onOpenSettings={() => setIsSettingsModalOpen(true)}
         toggleThemeTooltip={texts.toggleTheme}
         toggleLanguageTooltip={texts.toggleLanguage}
+        openSettingsTooltip={texts.openSettings}
       />
       <main className="flex-grow w-full max-w-6xl mx-auto p-4 md:p-6 lg:p-8 flex flex-col">
         <div className="flex-grow grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 mb-24 min-h-0">
@@ -239,6 +312,9 @@ const App: React.FC = () => {
             disabled={isLoading}
             onUploadClick={handleUploadClick}
             uploadTooltip={texts.uploadTooltip}
+            models={settings.selectedModels}
+            selectedModel={selectedModel}
+            onModelChange={setSelectedModel}
           />
           <SubtitleOutput
             label={texts.generatedSubtitles}
@@ -272,7 +348,7 @@ const App: React.FC = () => {
               
               <button
                 onClick={handleGenerate}
-                disabled={!copywriting.trim() || isLoading}
+                disabled={!copywriting.trim() || isLoading || !selectedModel}
                 className="flex items-center justify-center gap-2 px-4 py-3 text-sm sm:px-6 sm:text-base font-semibold text-white bg-blue-600 rounded-xl shadow-sm hover:bg-blue-500 disabled:bg-gray-400 dark:disabled:bg-gray-500 disabled:cursor-not-allowed transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-50 dark:focus:ring-offset-gray-900 focus:ring-blue-500"
               >
                 <MagicIcon className="w-5 h-5" />
@@ -298,8 +374,15 @@ const App: React.FC = () => {
           title: texts.historyPanelTitle,
           empty: texts.historyEmpty,
           clear: texts.clearHistory,
-          close: texts.close,
+          close: texts.settings.close,
         }}
+      />
+      <SettingsModal
+        isOpen={isSettingsModalOpen}
+        onClose={() => setIsSettingsModalOpen(false)}
+        settings={settings}
+        onSave={handleSaveSettings}
+        texts={texts.settings}
       />
     </div>
   );

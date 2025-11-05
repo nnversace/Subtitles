@@ -3,15 +3,14 @@
 // For example, in a Next.js project, this would be `pages/api/generate.ts`.
 // In a standalone Node.js server, this logic would be part of a route handler.
 
+// FIX: Import GoogleGenAI SDK.
+import { GoogleGenAI } from "@google/genai";
 
-// IMPORTANT: API keys and URLs are read from the server's environment variables.
-// They are NOT exposed to the client.
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_API_URL = process.env.OPENAI_API_URL || 'https://api.openai.com/v1';
+// FIX: Use the correct environment variable name 'API_KEY' as per guidelines.
+const API_KEY = process.env.API_KEY;
 
-
-if (!OPENAI_API_KEY) {
-  console.warn("OPENAI_API_KEY environment variable not set on the server");
+if (!API_KEY) {
+  console.warn("API_KEY environment variable not set on the server");
 }
 
 const PROMPT_ZH = `
@@ -148,8 +147,8 @@ export default async function handler(req: Request): Promise<Response> {
     return new Response('Method Not Allowed', { status: 405 });
   }
 
-  if (!OPENAI_API_KEY) {
-    return new Response('OPENAI_API_KEY environment variable not set on the server', { status: 500 });
+  if (!API_KEY) {
+    return new Response('API_KEY environment variable not set on the server', { status: 500 });
   }
 
   try {
@@ -159,71 +158,31 @@ export default async function handler(req: Request): Promise<Response> {
       return new Response('Invalid request body. "text", "lang", and "model" are required.', { status: 400 });
     }
     
-    const prompt = lang === 'zh' ? PROMPT_ZH : PROMPT_EN;
-    const endpoint = `${OPENAI_API_URL.replace(/\/$/, '')}/chat/completions`;
+    // FIX: Refactor to use @google/genai SDK for making requests.
+    const systemInstruction = lang === 'zh' ? PROMPT_ZH : PROMPT_EN;
+    const ai = new GoogleGenAI({ apiKey: API_KEY });
 
-    const openaiResponse = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${OPENAI_API_KEY}`
+    const geminiStream = await ai.models.generateContentStream({
+      model,
+      contents: text,
+      config: {
+        systemInstruction,
       },
-      body: JSON.stringify({
-          model: model,
-          messages: [
-              { role: 'system', content: prompt },
-              { role: 'user', content: text }
-          ],
-          stream: true,
-      }),
     });
 
-    if (!openaiResponse.ok) {
-      const errorText = await openaiResponse.text();
-      return new Response(`OpenAI API error: ${errorText}`, { status: openaiResponse.status });
-    }
-    
     const stream = new ReadableStream({
       async start(controller) {
-        if (!openaiResponse.body) {
-          controller.close();
-          return;
-        }
-        const reader = openaiResponse.body.getReader();
-        const decoder = new TextDecoder();
         const encoder = new TextEncoder();
-        let buffer = '';
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-
-          for (const line of lines) {
-            if (line.trim() === 'data: [DONE]') {
-              controller.close();
-              return;
-            }
-            if (line.startsWith('data: ')) {
-              const jsonStr = line.substring(6);
-              try {
-                const parsed = JSON.parse(jsonStr);
-                const content = parsed.choices[0]?.delta?.content;
-                if (content) {
-                  controller.enqueue(encoder.encode(content));
-                }
-              } catch (e) {
-                console.error('Could not parse OpenAI stream chunk:', jsonStr);
-              }
-            }
+        for await (const chunk of geminiStream) {
+          const content = chunk.text;
+          if (content) {
+            controller.enqueue(encoder.encode(content));
           }
         }
         controller.close();
       }
     });
+    
     return new Response(stream, { 
       headers: { 
         'Content-Type': 'text/plain; charset=utf-8',

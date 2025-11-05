@@ -1,5 +1,7 @@
 
+// FIX: Import GoogleGenAI to use the official Gemini API SDK.
 import { GoogleGenAI } from '@google/genai';
+import { AppSettings } from '../components/SettingsModal';
 
 const PROMPT_ZH = `
 Your core mission is to convert any input text (like scripts or articles) into pure, rhythm-focused "plain text subtitles". You must strictly follow all steps and principles to produce the required format.
@@ -52,7 +54,7 @@ The final goal is to simulate natural speech pauses and create visual rhythm. Li
 #### **Layer 2: Preservation Rules**
 
 1.  **Short Sentence Protection (≤6 chars)**: A complete, meaningful short sentence with 6 or fewer Chinese characters should, in principle, NOT be split further. This preserves its impact.
-    - **Examples**: \`姐妹们\`, \`大错特错\`, \`你听着\`, \`为什么\` should remain as single lines.
+    - **Examples**: \`姐妹们\`, \`大错特错\`, \`你听着\`, \`为什么\` should remain as a single lines.
 
 2.  **Semantic Unit Protection**: Make every effort to keep recognized proper nouns, technical terms, or tight collocations (e.g., \`利益共同体\`, \`情感绑架\`, \`温水煮青蛙\`) on the same line, UNLESS doing so violates the "Long Line Split" rule.
 
@@ -131,28 +133,63 @@ Now, process the following text:
 interface GenerateSubtitlesParams {
   text: string;
   lang: 'en' | 'zh';
+  model: string;
+  settings: AppSettings;
   onStreamUpdate: (chunk: string) => void;
 }
 
 export const generateSubtitles = async ({
   text,
   lang,
+  model,
+  settings,
   onStreamUpdate,
 }: GenerateSubtitlesParams): Promise<void> => {
+  const systemInstruction = lang === 'zh' ? PROMPT_ZH : PROMPT_EN;
+
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const model = 'gemini-2.5-pro';
-    const prompt = lang === 'zh' ? PROMPT_ZH : PROMPT_EN;
-    
-    const fullPrompt = `${prompt}\n\n${text}`;
+    if (settings.useClientSide) {
+      // FIX: Use the @google/genai SDK for client-side streaming requests.
+      const ai = new GoogleGenAI({ apiKey: settings.apiKey });
+      const responseStream = await ai.models.generateContentStream({
+        model,
+        contents: text,
+        config: {
+          systemInstruction,
+        },
+      });
 
-    const response = await ai.models.generateContentStream({
-      model: model,
-      contents: fullPrompt,
-    });
+      for await (const chunk of responseStream) {
+        onStreamUpdate(chunk.text);
+      }
+    } else {
+      // Server-side request to our own backend proxy
+      const response = await fetch('/api/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ text, lang, model }),
+      });
 
-    for await (const chunk of response) {
-      onStreamUpdate(chunk.text);
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`API Error: ${response.status} ${response.statusText} - ${errorText}`);
+      }
+
+      if (!response.body) {
+        throw new Error("The response body is empty.");
+      }
+
+      // FIX: Correctly handle raw text stream from server proxy instead of parsing SSE.
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        onStreamUpdate(decoder.decode(value));
+      }
     }
   } catch (error) {
     console.error("Error during subtitle generation:", error);
