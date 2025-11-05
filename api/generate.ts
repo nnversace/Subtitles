@@ -3,8 +3,9 @@
 // For example, in a Next.js project, this would be `pages/api/generate.ts`.
 // In a standalone Node.js server, this logic would be part of a route handler.
 
-const API_KEY = process.env.API_KEY;
-const API_URL = (process.env.API_URL || 'https://api.openai.com').replace(/\/$/, '');
+const API_KEY = process.env.OPENAI_API_KEY || process.env.API_KEY;
+const rawApiUrl = process.env.OPENAI_API_URL || process.env.API_URL || 'https://api.openai.com';
+const API_URL = rawApiUrl.replace(/\/$/, '');
 
 if (!API_KEY) {
   console.warn("API_KEY environment variable not set on the server");

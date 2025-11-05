@@ -114,10 +114,14 @@ const translations = {
   },
 };
 
-// FIX: Update settings to be Gemini-specific, removing openaiProxyUrl and updating default models.
+const resolveEnvString = (value: unknown, fallback = ''): string => {
+  return typeof value === 'string' && value.trim().length > 0 ? value : fallback;
+};
+
+// Provide default settings seeded from environment variables when available.
 const defaultSettings: AppSettings = {
-  apiKey: process.env.API_KEY || '',
-  apiUrl: 'https://api.openai.com',
+  apiKey: resolveEnvString(import.meta.env.VITE_OPENAI_API_KEY),
+  apiUrl: resolveEnvString(import.meta.env.VITE_OPENAI_API_URL, 'https://api.openai.com'),
   useClientSide: true,
   selectedModels: ['gpt-4o-mini', 'gpt-4o'],
 };
