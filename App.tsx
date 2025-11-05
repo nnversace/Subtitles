@@ -4,10 +4,10 @@ import { Header } from './components/Header';
 import { TextAreaInput } from './components/TextAreaInput';
 import { SubtitleOutput } from './components/SubtitleOutput';
 import { MagicIcon } from './components/icons/MagicIcon';
-import { generateSubtitlesFromText } from './services/geminiService';
+import { generateSubtitles } from './services/geminiService';
 import { HistoryPanel } from './components/HistoryPanel';
-import { ToggleSwitch } from './components/ToggleSwitch';
-import { ProviderSelector } from './components/ProviderSelector';
+import { SettingsModal, AppSettings } from './components/SettingsModal';
+import { ModelSelector } from './components/ModelSelector';
 
 export interface HistoryItem {
   id: number;
@@ -17,7 +17,6 @@ export interface HistoryItem {
 
 type Language = 'en' | 'zh';
 type Theme = 'light' | 'dark';
-type Provider = 'gemini' | 'openai';
 
 const translations = {
   en: {
@@ -42,11 +41,16 @@ const translations = {
     toggleLanguage: "切换中文",
     uploadTooltip: "Upload from file",
     uploadError: "Failed to read file.",
-    thinkingMode: "Thinking Mode",
-    thinkingModeTooltip: "Uses a more powerful model for complex scripts. May take longer.",
-    provider: "AI Provider",
-    gemini: "Gemini",
-    openai: "OpenAI",
+    settings: "Settings",
+    model: "AI Model",
+    settingsTitle: "Settings",
+    modelList: "Model List",
+    modelListHint: "Manage the models displayed in the dropdown menu.",
+    addModel: "Add Model",
+    add: "Add",
+    modelNamePlaceholder: "Enter model name...",
+    modelExistsError: "Model already exists in the list.",
+    save: "Save",
   },
   zh: {
     title: "文案转字幕",
@@ -70,12 +74,21 @@ const translations = {
     toggleLanguage: "Switch to English",
     uploadTooltip: "从文件上传",
     uploadError: "读取文件失败。",
-    thinkingMode: "深度思考模式",
-    thinkingModeTooltip: "为复杂文稿启用更强大的模型，生成时间可能会更长。",
-    provider: "AI 模型",
-    gemini: "Gemini",
-    openai: "OpenAI",
+    settings: "设置",
+    model: "AI 模型",
+    settingsTitle: "设置",
+    modelList: "模型列表",
+    modelListHint: "管理在下拉菜单中展示的模型。",
+    addModel: "添加模型",
+    add: "添加",
+    modelNamePlaceholder: "输入模型名称...",
+    modelExistsError: "模型已存在于列表中。",
+    save: "保存",
   },
+};
+
+const defaultSettings: AppSettings = {
+  selectedModels: ['gemini-2.5-pro-thinking', 'gemini-2.5-pro', 'grok-4'],
 };
 
 const App: React.FC = () => {
@@ -85,11 +98,34 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);
-  const [isThinkingMode, setIsThinkingMode] = useState<boolean>(false);
-  const [provider, setProvider] = useState<Provider>('gemini');
 
   const [language, setLanguage] = useState<Language>(() => (localStorage.getItem('language') as Language) || 'zh');
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('theme') as Theme) || 'light');
+  
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settings, setSettings] = useState<AppSettings>(() => {
+    try {
+      const savedSettings = localStorage.getItem('appSettings');
+      const parsed = savedSettings ? JSON.parse(savedSettings) : defaultSettings;
+      // Basic validation to ensure parsed data has the expected structure
+      if (parsed && Array.isArray(parsed.selectedModels)) {
+        return parsed;
+      }
+      return defaultSettings;
+    } catch (e) {
+      return defaultSettings;
+    }
+  });
+  const [selectedModel, setSelectedModel] = useState<string>(() => {
+     try {
+      const savedSettings = localStorage.getItem('appSettings');
+      const parsed = savedSettings ? JSON.parse(savedSettings) as AppSettings : defaultSettings;
+      return (parsed.selectedModels && parsed.selectedModels[0]) || '';
+    } catch (e) {
+      return defaultSettings.selectedModels[0] || '';
+    }
+  });
+
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const subtitlesRef = useRef<string>('');
@@ -102,7 +138,7 @@ const App: React.FC = () => {
         setHistory(JSON.parse(savedHistory));
       }
     } catch (error) {
-      console.error("Failed to parse from localStorage", error);
+      console.error("Failed to parse history from localStorage", error);
     }
   }, []);
 
@@ -118,6 +154,15 @@ const App: React.FC = () => {
       document.documentElement.classList.remove('dark');
     }
   }, [theme]);
+  
+  useEffect(() => {
+    localStorage.setItem('appSettings', JSON.stringify(settings));
+    // Ensure selected model is still valid
+    if (!settings.selectedModels.includes(selectedModel) || !selectedModel) {
+      setSelectedModel(settings.selectedModels[0] || '');
+    }
+  }, [settings, selectedModel]);
+
 
   const handleToggleTheme = () => {
     setTheme(prevTheme => prevTheme === 'light' ? 'dark' : 'light');
@@ -128,7 +173,7 @@ const App: React.FC = () => {
   };
 
   const handleGenerate = useCallback(async () => {
-    if (!copywriting.trim() || isLoading) return;
+    if (!copywriting.trim() || isLoading || !selectedModel) return;
 
     setIsLoading(true);
     setError(null);
@@ -136,9 +181,14 @@ const App: React.FC = () => {
     subtitlesRef.current = '';
 
     try {
-      await generateSubtitlesFromText(copywriting, language, isThinkingMode, provider, (chunk) => {
-        setSubtitles(prev => prev + chunk);
-        subtitlesRef.current += chunk;
+      await generateSubtitles({
+        text: copywriting, 
+        lang: language, 
+        model: selectedModel,
+        onStreamUpdate: (chunk) => {
+          setSubtitles(prev => prev + chunk);
+          subtitlesRef.current += chunk;
+        }
       });
 
       if (subtitlesRef.current) {
@@ -160,7 +210,7 @@ const App: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [copywriting, isLoading, language, isThinkingMode, provider]);
+  }, [copywriting, isLoading, language, selectedModel]);
 
   const handleClear = () => {
     setCopywriting('');
@@ -192,11 +242,10 @@ const App: React.FC = () => {
     reader.onload = (e) => {
       const text = e.target?.result as string;
       setCopywriting(text);
-      setError(null); // Clear previous errors
+      setError(null);
     };
     reader.onerror = () => {
       setError(texts.uploadError);
-      console.error('File reading error');
     };
     reader.readAsText(file);
 
@@ -204,6 +253,11 @@ const App: React.FC = () => {
       event.target.value = '';
     }
   };
+  
+  const handleSaveSettings = (newSettings: AppSettings) => {
+    setSettings(newSettings);
+    setIsSettingsOpen(false);
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 flex flex-col transition-colors duration-300">
@@ -213,8 +267,10 @@ const App: React.FC = () => {
         theme={theme}
         onToggleTheme={handleToggleTheme}
         onToggleLanguage={handleToggleLanguage}
+        onOpenSettings={() => setIsSettingsOpen(true)}
         toggleThemeTooltip={texts.toggleTheme}
         toggleLanguageTooltip={texts.toggleLanguage}
+        settingsTooltip={texts.settings}
       />
       <main className="flex-grow w-full max-w-6xl mx-auto p-4 md:p-6 lg:p-8 flex flex-col">
         <div className="flex-grow grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 mb-24">
@@ -248,47 +304,37 @@ const App: React.FC = () => {
       />
       <div className="fixed bottom-0 left-0 right-0 bg-gray-50/80 dark:bg-gray-900/80 backdrop-blur-sm">
         <div className="container mx-auto p-4 border-t border-gray-200 dark:border-gray-700">
-            <div className="max-w-6xl mx-auto flex justify-center items-center gap-4">
+            <div className="max-w-6xl mx-auto flex justify-center items-center gap-2 sm:gap-4">
               <button
                 onClick={() => setIsHistoryPanelOpen(true)}
                 disabled={isLoading}
-                className="px-6 py-3 font-semibold text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-700 rounded-xl hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 transition-colors duration-300"
+                className="px-4 py-3 text-sm sm:px-6 sm:text-base font-semibold text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors duration-300"
               >
                 {texts.history}
               </button>
               
-              <ProviderSelector 
-                value={provider}
-                onChange={setProvider}
-                disabled={isLoading}
-                texts={{ gemini: texts.gemini, openai: texts.openai }}
-              />
-
-              <div className="relative group flex items-center">
-                <ToggleSwitch
-                  id="thinking-mode-toggle"
-                  checked={isThinkingMode}
-                  onChange={setIsThinkingMode}
+              <div className="flex items-center gap-x-1 sm:gap-x-2 p-1 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+                <ModelSelector
+                  label={texts.model}
+                  value={selectedModel}
+                  onChange={setSelectedModel}
                   disabled={isLoading}
-                  label={texts.thinkingMode}
+                  models={settings.selectedModels}
                 />
-                <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-300 whitespace-nowrap pointer-events-none dark:bg-gray-200 dark:text-gray-800">
-                  {texts.thinkingModeTooltip}
-                </div>
               </div>
               
               <button
                 onClick={handleGenerate}
-                disabled={!copywriting.trim() || isLoading}
-                className="flex items-center justify-center gap-2 px-6 py-3 font-semibold text-white bg-gray-900 dark:bg-blue-600 rounded-xl shadow-sm hover:bg-gray-700 dark:hover:bg-blue-500 disabled:bg-gray-400 dark:disabled:bg-gray-500 disabled:cursor-not-allowed transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-50 dark:focus:ring-offset-gray-900 focus:ring-gray-900 dark:focus:ring-blue-500"
+                disabled={!copywriting.trim() || isLoading || !selectedModel}
+                className="flex items-center justify-center gap-2 px-4 py-3 text-sm sm:px-6 sm:text-base font-semibold text-white bg-blue-600 rounded-xl shadow-sm hover:bg-blue-500 disabled:bg-gray-400 dark:disabled:bg-gray-500 disabled:cursor-not-allowed transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-50 dark:focus:ring-offset-gray-900 focus:ring-blue-500"
               >
                 <MagicIcon className="w-5 h-5" />
-                <span>{isLoading ? texts.generating : texts.generate}</span>
+                <span className="hidden sm:inline">{isLoading ? texts.generating : texts.generate}</span>
               </button>
               <button
                 onClick={handleClear}
                 disabled={isLoading}
-                className="px-6 py-3 font-semibold text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-700 rounded-xl hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 transition-colors duration-300"
+                className="px-4 py-3 text-sm sm:px-6 sm:text-base font-semibold text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors duration-300"
               >
                 {texts.clear}
               </button>
@@ -305,6 +351,23 @@ const App: React.FC = () => {
           title: texts.historyPanelTitle,
           empty: texts.historyEmpty,
           clear: texts.clearHistory,
+          close: texts.close,
+        }}
+      />
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        settings={settings}
+        onSave={handleSaveSettings}
+        texts={{
+          title: texts.settingsTitle,
+          modelList: texts.modelList,
+          modelListHint: texts.modelListHint,
+          addModel: texts.addModel,
+          add: texts.add,
+          modelNamePlaceholder: texts.modelNamePlaceholder,
+          modelExistsError: texts.modelExistsError,
+          save: texts.save,
           close: texts.close,
         }}
       />

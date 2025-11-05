@@ -153,19 +153,12 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   try {
-    const { text, lang, isThinkingMode, provider } = await req.json();
+    const { text, lang, model } = await req.json();
 
-    if (!text || (lang !== 'en' && lang !== 'zh') || !provider) {
-      return new Response('Invalid request body. "text", "lang", and "provider" are required.', { status: 400 });
+    if (!text || (lang !== 'en' && lang !== 'zh') || !model) {
+      return new Response('Invalid request body. "text", "lang", and "model" are required.', { status: 400 });
     }
     
-    let model: string;
-    if (provider === 'gemini') {
-      model = isThinkingMode ? 'GEMINI-2.5-PRO-THINKING' : 'GEMINI-2.5-PRO';
-    } else { // provider === 'openai'
-      model = isThinkingMode ? 'GPT-5-THINKING' : 'GPT-5';
-    }
-
     const prompt = lang === 'zh' ? PROMPT_ZH : PROMPT_EN;
     const endpoint = `${OPENAI_API_URL.replace(/\/$/, '')}/v1/chat/completions`;
 
