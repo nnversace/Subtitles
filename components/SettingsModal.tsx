@@ -11,6 +11,7 @@ import { CheckIcon } from './icons/CheckIcon';
 // FIX: Update AppSettings to remove openaiProxyUrl, as it is no longer needed with the Gemini SDK.
 export interface AppSettings {
   apiKey: string;
+  apiUrl: string;
   useClientSide: boolean;
   selectedModels: string[];
 }
@@ -24,6 +25,8 @@ interface SettingsModalProps {
     title: string;
     apiKey: string;
     apiKeyPlaceholder: string;
+    apiUrl: string;
+    apiUrlPlaceholder: string;
     useClientSide: string;
     useClientSideHint: string;
     modelList: string;
@@ -45,7 +48,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
   const [showApiKey, setShowApiKey] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [testStatus, setTestStatus] = useState<'idle' | 'success' | 'failure'>('idle');
-  const [availableModels, setAvailableModels] = useState<any[]>([]);
+  const [availableModels, setAvailableModels] = useState<Array<{ id: string }>>([]);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [modelSearchTerm, setModelSearchTerm] = useState('');
   const modelManagerRef = useRef<HTMLDivElement>(null);
@@ -79,7 +82,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
   }, [isModelDropdownOpen]);
 
   const handleSave = () => {
-    onSave(localSettings);
+    const sanitizedSettings: AppSettings = {
+      ...localSettings,
+      apiUrl: localSettings.apiUrl.trim(),
+    };
+    onSave(sanitizedSettings);
   };
   
   const handleRemoveModel = (modelToRemove: string) => {
@@ -106,14 +113,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
     setTestStatus('idle');
     setAvailableModels([]);
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${localSettings.apiKey}`);
-      
+      const baseUrl = localSettings.apiUrl.replace(/\/$/, '');
+      const response = await fetch(`${baseUrl}/v1/models`, {
+        headers: {
+          Authorization: `Bearer ${localSettings.apiKey}`,
+        },
+      });
+
       if (response.ok) {
         const data = await response.json();
-        if (data && Array.isArray(data.models)) {
-            const models = data.models.map((m: any) => ({ 
-              id: m.name.replace('models/', '') 
-            })).filter((m: any) => m.id.includes('gemini'));
+        const rawModels = Array.isArray(data?.data)
+          ? data.data
+          : Array.isArray(data?.models)
+            ? data.models
+            : Array.isArray(data)
+              ? data
+              : [];
+
+        if (rawModels.length > 0) {
+            const models = rawModels
+              .map((m: any) => m?.id || m?.name || m)
+              .filter((id: any) => typeof id === 'string')
+              .map((id: string) => ({ id }));
             const sortedModels = models.sort((a: any, b: any) => a.id.localeCompare(b.id));
             setAvailableModels(sortedModels);
             setTestStatus('success');
@@ -165,7 +186,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                 </button>
               </div>
             </div>
-            
+
+            <div>
+              <label htmlFor="api-url-input" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{texts.apiUrl}</label>
+              <input
+                id="api-url-input"
+                type="text"
+                value={localSettings.apiUrl}
+                onChange={(e) => setLocalSettings(prev => ({ ...prev, apiUrl: e.target.value }))}
+                placeholder={texts.apiUrlPlaceholder}
+                className="w-full px-3 py-2 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+              />
+            </div>
+
             <div>
               <ToggleSwitch
                 id="client-side-toggle"
@@ -245,9 +278,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
           </div>
         </main>
         <footer className="flex justify-end items-center gap-3 p-4 border-t border-gray-200 dark:border-gray-700 flex-shrink-0 bg-gray-50 dark:bg-gray-800/50 rounded-b-xl">
+          <span className="mr-auto text-sm text-gray-600 dark:text-gray-300">{texts.connectivityCheck}</span>
           <button
               onClick={handleTestConnection}
-              disabled={isTesting || !localSettings.apiKey}
+              disabled={isTesting || !localSettings.apiKey || !localSettings.apiUrl}
               className={`flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold rounded-md transition-colors duration-300 disabled:opacity-50 disabled:cursor-not-allowed ${
                 testStatus === 'success' 
                   ? 'bg-green-100 text-green-700 dark:bg-green-800/50 dark:text-green-300'
