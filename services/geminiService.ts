@@ -1,6 +1,4 @@
 
-// FIX: Import GoogleGenAI to use the Gemini API.
-import { GoogleGenAI } from '@google/genai';
 import { AppSettings } from '../components/SettingsModal';
 
 const PROMPT_ZH = `
@@ -198,7 +196,6 @@ const handleRawStream = async (
     }
 };
 
-// FIX: Refactor to use the Gemini API for Gemini models and fallback to OpenAI API for others.
 export const generateSubtitles = async ({
   text,
   lang,
@@ -210,74 +207,44 @@ export const generateSubtitles = async ({
     if (!settings.apiKey) {
       throw new Error("API Key is not set. Please configure it in the settings.");
     }
+    
+    // Always use the OpenAI-compatible API for client-side requests.
+    // This resolves the error caused by trying to use an OpenAI key with the native Gemini SDK.
+    const prompt = lang === 'zh' ? PROMPT_ZH : PROMPT_EN;
+    const endpoint = `${(settings.openaiProxyUrl || 'https://api.openai.com/v1').replace(/\/$/, '')}/chat/completions`;
 
-    if (model.startsWith('gemini-')) {
-      try {
-        const ai = new GoogleGenAI({ apiKey: settings.apiKey });
-        const prompt = lang === 'zh' ? PROMPT_ZH : PROMPT_EN;
-        
-        let effectiveModel = model;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const config: any = { systemInstruction: prompt };
-
-        if (model === 'gemini-2.5-pro-thinking') {
-          effectiveModel = 'gemini-2.5-pro';
-          config.thinkingConfig = { thinkingBudget: 32768 }; // max for 2.5 pro
-        }
-
-        const responseStream = await ai.models.generateContentStream({
-            model: effectiveModel,
-            contents: text,
-            config: config,
+    try {
+        const openaiResponse = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${settings.apiKey}`
+          },
+          body: JSON.stringify({
+              model: model,
+              messages: [
+                  { role: 'system', content: prompt },
+                  { role: 'user', content: text }
+              ],
+              stream: true,
+          }),
         });
         
-        for await (const chunk of responseStream) {
-            onStreamUpdate(chunk.text);
+        if (!openaiResponse.ok) {
+          const errorText = await openaiResponse.text();
+          throw new Error(`API error (${openaiResponse.status}): ${errorText}`);
         }
-      } catch (error) {
-          console.error("Error during client-side Gemini generation:", error);
-          if (error instanceof Error) {
-            throw error;
-          }
-          throw new Error("An unknown error occurred while communicating with the Gemini service.");
-      }
-    } else {
-      // Client-side logic for OpenAI-compatible models
-      const prompt = lang === 'zh' ? PROMPT_ZH : PROMPT_EN;
-      const endpoint = `${(settings.openaiProxyUrl || 'https://api.openai.com/v1').replace(/\/$/, '')}/chat/completions`;
+        
+        await handleOpenAIStream(openaiResponse, onStreamUpdate);
 
-      try {
-          const openaiResponse = await fetch(endpoint, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${settings.apiKey}`
-            },
-            body: JSON.stringify({
-                model: model,
-                messages: [
-                    { role: 'system', content: prompt },
-                    { role: 'user', content: text }
-                ],
-                stream: true,
-            }),
-          });
-          
-          if (!openaiResponse.ok) {
-            const errorText = await openaiResponse.text();
-            throw new Error(`API error (${openaiResponse.status}): ${errorText}`);
-          }
-          
-          await handleOpenAIStream(openaiResponse, onStreamUpdate);
-
-      } catch(error) {
-          console.error("Error during client-side subtitle generation:", error);
-          if (error instanceof Error) {
-            throw error;
-          }
-          throw new Error("An unknown error occurred while communicating with the AI service.");
-      }
+    } catch(error) {
+        console.error("Error during client-side subtitle generation:", error);
+        if (error instanceof Error) {
+          throw error;
+        }
+        throw new Error("An unknown error occurred while communicating with the AI service.");
     }
+
   } else {
     // Server-side logic
     try {
