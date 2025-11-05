@@ -4,9 +4,10 @@ import { Header } from './components/Header';
 import { TextAreaInput } from './components/TextAreaInput';
 import { SubtitleOutput } from './components/SubtitleOutput';
 import { MagicIcon } from './components/icons/MagicIcon';
-import { generateSubtitles } from './services/geminiService';
+import { generateSubtitles } from './services/openaiService';
 import { HistoryPanel } from './components/HistoryPanel';
 import { SettingsModal, AppSettings } from './components/SettingsModal';
+import { ModelSelector } from './components/ModelSelector';
 
 // Add mammoth to the window scope for TypeScript
 declare var mammoth: any;
@@ -27,6 +28,7 @@ const translations = {
     yourScript: "Your Script",
     placeholder: "Paste your script or copywriting here...",
     generatedSubtitles: "Generated Subtitles",
+    selectModel: "Select Model",
     outputPlaceholder: "Your generated subtitles will appear here.",
     history: "History",
     generate: "Generate Subtitles",
@@ -46,7 +48,9 @@ const translations = {
     settings: {
       title: "Settings",
       apiKey: "API Key",
-      apiKeyPlaceholder: "Enter your Gemini API Key",
+      apiKeyPlaceholder: "Enter your OpenAI-compatible API Key",
+      apiUrl: "API URL",
+      apiUrlPlaceholder: "https://api.openai.com",
       useClientSide: "Use client-side request mode",
       useClientSideHint: "Client-side mode sends requests directly from the browser. Required for model testing.",
       modelList: "Model List",
@@ -69,6 +73,7 @@ const translations = {
     yourScript: "你的文稿",
     placeholder: "在此处粘贴您的脚本或文案...",
     generatedSubtitles: "生成的字幕",
+    selectModel: "选择模型",
     outputPlaceholder: "您生成的字幕将显示在此处。",
     history: "历史",
     generate: "生成字幕",
@@ -88,7 +93,9 @@ const translations = {
     settings: {
       title: "设置",
       apiKey: "API Key",
-      apiKeyPlaceholder: "请输入您的 Gemini API Key",
+      apiKeyPlaceholder: "请输入 OpenAI 兼容的 API Key",
+      apiUrl: "API 地址",
+      apiUrlPlaceholder: "https://api.openai.com",
       useClientSide: "使用客户端请求模式",
       useClientSideHint: "客户端请求模式将从浏览器直接发起对话请求。模型测试需要开启此项。",
       modelList: "模型列表",
@@ -110,8 +117,9 @@ const translations = {
 // FIX: Update settings to be Gemini-specific, removing openaiProxyUrl and updating default models.
 const defaultSettings: AppSettings = {
   apiKey: process.env.API_KEY || '',
+  apiUrl: 'https://api.openai.com',
   useClientSide: true,
-  selectedModels: ['gemini-2.5-pro', 'gemini-flash-latest'],
+  selectedModels: ['gpt-4o-mini', 'gpt-4o'],
 };
 
 const App: React.FC = () => {
@@ -136,7 +144,10 @@ const App: React.FC = () => {
     try {
       const savedSettings = localStorage.getItem('appSettings');
       if (savedSettings) {
-        const parsedSettings = JSON.parse(savedSettings);
+        const parsedSettings = { ...defaultSettings, ...JSON.parse(savedSettings) };
+        if (!parsedSettings.selectedModels || parsedSettings.selectedModels.length === 0) {
+          parsedSettings.selectedModels = [...defaultSettings.selectedModels];
+        }
         setSettings(parsedSettings);
         if (parsedSettings.selectedModels?.length > 0) {
           setSelectedModel(parsedSettings.selectedModels[0]);
@@ -186,8 +197,8 @@ const App: React.FC = () => {
     if (!copywriting.trim() || isLoading || !selectedModel) return;
     
     // FIX: Updated API Key check to be more robust.
-    if (settings.useClientSide && !settings.apiKey) {
-      setError("API Key is required for client-side requests. Please set it in the settings.");
+    if (settings.useClientSide && (!settings.apiKey || !settings.apiUrl)) {
+      setError("API Key and API URL are required for client-side requests. Please set them in the settings.");
       setIsSettingsModalOpen(true);
       return;
     }
@@ -302,7 +313,7 @@ const App: React.FC = () => {
         toggleLanguageTooltip={texts.toggleLanguage}
         openSettingsTooltip={texts.openSettings}
       />
-      <main className="flex-grow w-full max-w-6xl mx-auto p-4 md:p-6 lg:p-8 flex flex-col">
+      <main className="flex-grow w-full max-w-6xl mx-auto p-4 md:p-6 lg:p-8 flex flex-col min-h-0">
         <div className="flex-grow grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 mb-24 min-h-0">
           <TextAreaInput
             label={texts.yourScript}
@@ -312,9 +323,6 @@ const App: React.FC = () => {
             disabled={isLoading}
             onUploadClick={handleUploadClick}
             uploadTooltip={texts.uploadTooltip}
-            models={settings.selectedModels}
-            selectedModel={selectedModel}
-            onModelChange={setSelectedModel}
           />
           <SubtitleOutput
             label={texts.generatedSubtitles}
@@ -337,7 +345,17 @@ const App: React.FC = () => {
       />
       <div className="fixed bottom-0 left-0 right-0 bg-gray-50/80 dark:bg-gray-900/80 backdrop-blur-sm">
         <div className="container mx-auto p-4 border-t border-gray-200 dark:border-gray-700">
-            <div className="max-w-6xl mx-auto flex justify-center items-center gap-2 sm:gap-4">
+            <div className="max-w-6xl mx-auto flex flex-col items-center gap-3 sm:gap-4">
+              <div className="w-full flex justify-center">
+                <ModelSelector
+                  value={selectedModel}
+                  onChange={setSelectedModel}
+                  disabled={isLoading}
+                  models={settings.selectedModels}
+                  label={texts.selectModel}
+                />
+              </div>
+              <div className="flex justify-center items-center gap-2 sm:gap-4">
               <button
                 onClick={() => setIsHistoryPanelOpen(true)}
                 disabled={isLoading}
@@ -345,7 +363,7 @@ const App: React.FC = () => {
               >
                 {texts.history}
               </button>
-              
+
               <button
                 onClick={handleGenerate}
                 disabled={!copywriting.trim() || isLoading || !selectedModel}
@@ -361,6 +379,7 @@ const App: React.FC = () => {
               >
                 {texts.clear}
               </button>
+              </div>
             </div>
         </div>
       </div>

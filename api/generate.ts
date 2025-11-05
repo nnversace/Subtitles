@@ -3,11 +3,8 @@
 // For example, in a Next.js project, this would be `pages/api/generate.ts`.
 // In a standalone Node.js server, this logic would be part of a route handler.
 
-// FIX: Import GoogleGenAI SDK.
-import { GoogleGenAI } from "@google/genai";
-
-// FIX: Use the correct environment variable name 'API_KEY' as per guidelines.
 const API_KEY = process.env.API_KEY;
+const API_URL = (process.env.API_URL || 'https://api.openai.com').replace(/\/$/, '');
 
 if (!API_KEY) {
   console.warn("API_KEY environment variable not set on the server");
@@ -139,9 +136,8 @@ The final goal is to simulate natural speech pauses and create visual rhythm. Li
 Now, process the following text:
 `;
 
-// This is an example handler. The exact implementation depends on your server framework
-// (e.g., Express, Fastify, Next.js API Routes, etc.).
-// This example uses a Web Streams API compatible format.
+const CHAT_COMPLETION_PATH = '/v1/chat/completions';
+
 export default async function handler(req: Request): Promise<Response> {
   if (req.method !== 'POST') {
     return new Response('Method Not Allowed', { status: 405 });
@@ -157,35 +153,54 @@ export default async function handler(req: Request): Promise<Response> {
     if (!text || (lang !== 'en' && lang !== 'zh') || !model) {
       return new Response('Invalid request body. "text", "lang", and "model" are required.', { status: 400 });
     }
-    
-    // FIX: Refactor to use @google/genai SDK for making requests.
-    const systemInstruction = lang === 'zh' ? PROMPT_ZH : PROMPT_EN;
-    const ai = new GoogleGenAI({ apiKey: API_KEY });
 
-    const geminiStream = await ai.models.generateContentStream({
-      model,
-      contents: text,
-      config: {
-        systemInstruction,
+    const systemInstruction = lang === 'zh' ? PROMPT_ZH : PROMPT_EN;
+    const response = await fetch(`${API_URL}${CHAT_COMPLETION_PATH}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${API_KEY}`,
       },
+      body: JSON.stringify({
+        model,
+        stream: true,
+        messages: [
+          { role: 'system', content: systemInstruction },
+          { role: 'user', content: text },
+        ],
+      }),
     });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return new Response(`Server Error: ${response.status} ${response.statusText} - ${errorText}`, { status: 500 });
+    }
+
+    if (!response.body) {
+      return new Response('Upstream response body was empty.', { status: 500 });
+    }
 
     const stream = new ReadableStream({
       async start(controller) {
-        const encoder = new TextEncoder();
-        for await (const chunk of geminiStream) {
-          const content = chunk.text;
-          if (content) {
-            controller.enqueue(encoder.encode(content));
+        const reader = response.body!.getReader();
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (value) {
+              controller.enqueue(value);
+            }
           }
+          controller.close();
+        } catch (error) {
+          controller.error(error);
         }
-        controller.close();
       }
     });
-    
-    return new Response(stream, { 
-      headers: { 
-        'Content-Type': 'text/plain; charset=utf-8',
+
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream; charset=utf-8',
         'X-Content-Type-Options': 'nosniff',
       }
     });
