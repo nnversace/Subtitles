@@ -4,7 +4,7 @@ import { Header } from './components/Header';
 import { TextAreaInput } from './components/TextAreaInput';
 import { SubtitleOutput } from './components/SubtitleOutput';
 import { MagicIcon } from './components/icons/MagicIcon';
-import { generateSubtitles } from './services/geminiService';
+import { generateSubtitles } from './services/openaiService';
 import { HistoryPanel } from './components/HistoryPanel';
 import { SettingsModal, AppSettings } from './components/SettingsModal';
 
@@ -56,7 +56,6 @@ const translations = {
       modelListHint: "Manage models displayed in the dropdown.",
       modelSelectorPlaceholder: "Add models to use...",
       searchModelsPlaceholder: "Search models...",
-      // FIX: Add missing 'connectivityCheck' property to fix TypeScript error.
       connectivityCheck: "Connectivity Check",
       test: "Test",
       testing: "Testing...",
@@ -101,7 +100,6 @@ const translations = {
       modelListHint: "管理在下拉菜单中展示的模型。",
       modelSelectorPlaceholder: "请添加需要使用的模型...",
       searchModelsPlaceholder: "搜索模型...",
-      // FIX: Add missing 'connectivityCheck' property to fix TypeScript error.
       connectivityCheck: "连通性检查",
       test: "检查",
       testing: "检查中...",
@@ -113,12 +111,28 @@ const translations = {
   },
 };
 
-// FIX: Update settings to be Gemini-specific, removing openaiProxyUrl and updating default models.
 const defaultSettings: AppSettings = {
   apiKey: process.env.API_KEY || '',
   openAiApiUrl: process.env.OPENAI_API_URL || 'https://api.openai.com/v1',
   useClientSide: true,
-  selectedModels: ['gemini-2.5-pro', 'gemini-flash-latest'],
+  selectedModels: ['gpt-4o-mini', 'gpt-4o'],
+};
+
+const normalizeModels = (models?: string[]): string[] => {
+  const fallback = [...defaultSettings.selectedModels];
+  if (!models) {
+    return fallback;
+  }
+
+  const unique = Array.from(
+    new Set(
+      models
+        .map((model) => (typeof model === 'string' ? model.trim() : ''))
+        .filter((model): model is string => Boolean(model))
+    )
+  );
+
+  return unique.length > 0 ? unique : fallback;
 };
 
 const App: React.FC = () => {
@@ -144,11 +158,17 @@ const App: React.FC = () => {
       const savedSettings = localStorage.getItem('appSettings');
       if (savedSettings) {
         const parsedSettings = JSON.parse(savedSettings);
-        const mergedSettings: AppSettings = { ...defaultSettings, ...parsedSettings };
+        const mergedSettings: AppSettings = {
+          ...defaultSettings,
+          ...parsedSettings,
+          openAiApiUrl:
+            typeof parsedSettings.openAiApiUrl === 'string' && parsedSettings.openAiApiUrl.trim()
+              ? parsedSettings.openAiApiUrl.trim()
+              : defaultSettings.openAiApiUrl,
+          selectedModels: normalizeModels(parsedSettings.selectedModels),
+        };
         setSettings(mergedSettings);
-        if (mergedSettings.selectedModels?.length > 0) {
-          setSelectedModel(mergedSettings.selectedModels[0]);
-        }
+        setSelectedModel(mergedSettings.selectedModels[0]);
       } else {
         setSettings(defaultSettings);
         setSelectedModel(defaultSettings.selectedModels[0]);
@@ -174,10 +194,17 @@ const App: React.FC = () => {
   }, [theme]);
   
   const handleSaveSettings = (newSettings: AppSettings) => {
-    setSettings(newSettings);
-    localStorage.setItem('appSettings', JSON.stringify(newSettings));
-    if (newSettings.selectedModels && !newSettings.selectedModels.includes(selectedModel)) {
-      setSelectedModel(newSettings.selectedModels[0] || '');
+    const sanitizedSettings: AppSettings = {
+      ...newSettings,
+      openAiApiUrl: newSettings.openAiApiUrl.trim() || defaultSettings.openAiApiUrl,
+      selectedModels: normalizeModels(newSettings.selectedModels),
+    };
+
+    setSettings(sanitizedSettings);
+    localStorage.setItem('appSettings', JSON.stringify(sanitizedSettings));
+
+    if (!sanitizedSettings.selectedModels.includes(selectedModel)) {
+      setSelectedModel(sanitizedSettings.selectedModels[0] || '');
     }
     setIsSettingsModalOpen(false);
   };
@@ -193,7 +220,6 @@ const App: React.FC = () => {
   const handleGenerate = useCallback(async () => {
     if (!copywriting.trim() || isLoading || !selectedModel) return;
     
-    // FIX: Updated API Key check to be more robust.
     if (settings.useClientSide && !settings.apiKey) {
       setError("API Key is required for client-side requests. Please set it in the settings.");
       setIsSettingsModalOpen(true);

@@ -1,6 +1,3 @@
-
-// FIX: Import GoogleGenAI to use the official Gemini API SDK.
-import { GoogleGenAI } from '@google/genai';
 import { AppSettings } from '../components/SettingsModal';
 
 const PROMPT_ZH = `
@@ -54,7 +51,7 @@ The final goal is to simulate natural speech pauses and create visual rhythm. Li
 #### **Layer 2: Preservation Rules**
 
 1.  **Short Sentence Protection (≤6 chars)**: A complete, meaningful short sentence with 6 or fewer Chinese characters should, in principle, NOT be split further. This preserves its impact.
-    - **Examples**: \`姐妹们\`, \`大错特错\`, \`你听着\`, \`为什么\` should remain as a single lines.
+    - **Examples**: \`姐妹们\`, \`大错特错\`, \`你听着\`, \`为什么\` should remain as single lines.
 
 2.  **Semantic Unit Protection**: Make every effort to keep recognized proper nouns, technical terms, or tight collocations (e.g., \`利益共同体\`, \`情感绑架\`, \`温水煮青蛙\`) on the same line, UNLESS doing so violates the "Long Line Split" rule.
 
@@ -129,7 +126,6 @@ The final goal is to simulate natural speech pauses and create visual rhythm. Li
 Now, process the following text:
 `;
 
-
 interface GenerateSubtitlesParams {
   text: string;
   lang: 'en' | 'zh';
@@ -137,6 +133,92 @@ interface GenerateSubtitlesParams {
   settings: AppSettings;
   onStreamUpdate: (chunk: string) => void;
 }
+
+const buildOpenAiUrl = (baseUrl: string, path: string) => {
+  const normalizedBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+  return `${normalizedBase}${path}`;
+};
+
+const streamChatCompletion = async (
+  stream: ReadableStream<Uint8Array>,
+  onChunk: (content: string) => void,
+) => {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+
+  const emitFromEvent = (event: string): boolean => {
+    const trimmed = event.trim();
+    if (!trimmed) {
+      return false;
+    }
+
+    for (const line of trimmed.split('\n')) {
+      if (!line.startsWith('data:')) {
+        continue;
+      }
+
+      const data = line.slice(5).trim();
+      if (!data || data === '[DONE]') {
+        return data === '[DONE]';
+      }
+
+      try {
+        const parsed = JSON.parse(data);
+        const choice = parsed.choices?.[0];
+        if (!choice) {
+          continue;
+        }
+
+        let content = '';
+        const delta = choice.delta ?? {};
+
+        if (typeof delta.content === 'string') {
+          content = delta.content;
+        } else if (Array.isArray(delta.content)) {
+          content = delta.content
+            .map((part: any) => (typeof part === 'string' ? part : part?.text ?? ''))
+            .join('');
+        } else if (typeof choice.message?.content === 'string') {
+          content = choice.message.content;
+        } else if (Array.isArray(choice.message?.content)) {
+          content = choice.message.content
+            .map((part: any) => (typeof part === 'string' ? part : part?.text ?? ''))
+            .join('');
+        }
+
+        if (content) {
+          onChunk(content);
+        }
+      } catch (error) {
+        console.error('Failed to parse OpenAI stream payload', error);
+      }
+    }
+
+    return false;
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) {
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split('\n\n');
+    buffer = events.pop() ?? '';
+
+    for (const event of events) {
+      if (emitFromEvent(event)) {
+        return;
+      }
+    }
+  }
+
+  if (buffer && emitFromEvent(buffer)) {
+    return;
+  }
+};
 
 export const generateSubtitles = async ({
   text,
@@ -149,21 +231,30 @@ export const generateSubtitles = async ({
 
   try {
     if (settings.useClientSide) {
-      // FIX: Use the @google/genai SDK for client-side streaming requests.
-      const ai = new GoogleGenAI({ apiKey: settings.apiKey });
-      const responseStream = await ai.models.generateContentStream({
-        model,
-        contents: text,
-        config: {
-          systemInstruction,
+      const url = buildOpenAiUrl(settings.openAiApiUrl, '/chat/completions');
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${settings.apiKey}`,
         },
+        body: JSON.stringify({
+          model,
+          stream: true,
+          messages: [
+            { role: 'system', content: systemInstruction },
+            { role: 'user', content: text },
+          ],
+        }),
       });
 
-      for await (const chunk of responseStream) {
-        onStreamUpdate(chunk.text);
+      if (!response.ok || !response.body) {
+        const errorText = await response.text();
+        throw new Error(`API Error: ${response.status} ${response.statusText} - ${errorText}`);
       }
+
+      await streamChatCompletion(response.body, onStreamUpdate);
     } else {
-      // Server-side request to our own backend proxy
       const response = await fetch('/api/generate', {
         method: 'POST',
         headers: {
@@ -178,10 +269,9 @@ export const generateSubtitles = async ({
       }
 
       if (!response.body) {
-        throw new Error("The response body is empty.");
+        throw new Error('The response body is empty.');
       }
 
-      // FIX: Correctly handle raw text stream from server proxy instead of parsing SSE.
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
 
@@ -192,10 +282,10 @@ export const generateSubtitles = async ({
       }
     }
   } catch (error) {
-    console.error("Error during subtitle generation:", error);
+    console.error('Error during subtitle generation:', error);
     if (error instanceof Error) {
       throw error;
     }
-    throw new Error("An unknown error occurred while communicating with the AI service.");
+    throw new Error('An unknown error occurred while communicating with the AI service.');
   }
 };

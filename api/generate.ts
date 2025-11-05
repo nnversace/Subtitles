@@ -1,16 +1,8 @@
-
-// This file should be placed in your backend/serverless function directory.
-// For example, in a Next.js project, this would be `pages/api/generate.ts`.
-// In a standalone Node.js server, this logic would be part of a route handler.
-
-// FIX: Import GoogleGenAI SDK.
-import { GoogleGenAI } from "@google/genai";
-
-// FIX: Use the correct environment variable name 'API_KEY' as per guidelines.
 const API_KEY = process.env.API_KEY;
+const OPENAI_API_URL = process.env.OPENAI_API_URL || 'https://api.openai.com/v1';
 
 if (!API_KEY) {
-  console.warn("API_KEY environment variable not set on the server");
+  console.warn('API_KEY environment variable not set on the server');
 }
 
 const PROMPT_ZH = `
@@ -139,9 +131,93 @@ The final goal is to simulate natural speech pauses and create visual rhythm. Li
 Now, process the following text:
 `;
 
-// This is an example handler. The exact implementation depends on your server framework
-// (e.g., Express, Fastify, Next.js API Routes, etc.).
-// This example uses a Web Streams API compatible format.
+const buildOpenAiUrl = (path: string) => {
+  const base = OPENAI_API_URL.endsWith('/') ? OPENAI_API_URL.slice(0, -1) : OPENAI_API_URL;
+  return `${base}${path}`;
+};
+
+const streamChatCompletion = async (
+  stream: ReadableStream<Uint8Array>,
+  controller: ReadableStreamDefaultController<Uint8Array>,
+) => {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder('utf-8');
+  const encoder = new TextEncoder();
+  let buffer = '';
+
+  const emitFromEvent = (event: string): boolean => {
+    const trimmed = event.trim();
+    if (!trimmed) {
+      return false;
+    }
+
+    for (const line of trimmed.split('\n')) {
+      if (!line.startsWith('data:')) {
+        continue;
+      }
+
+      const data = line.slice(5).trim();
+      if (!data || data === '[DONE]') {
+        return data === '[DONE]';
+      }
+
+      try {
+        const parsed = JSON.parse(data);
+        const choice = parsed.choices?.[0];
+        if (!choice) {
+          continue;
+        }
+
+        let content = '';
+        const delta = choice.delta ?? {};
+
+        if (typeof delta.content === 'string') {
+          content = delta.content;
+        } else if (Array.isArray(delta.content)) {
+          content = delta.content
+            .map((part: any) => (typeof part === 'string' ? part : part?.text ?? ''))
+            .join('');
+        } else if (typeof choice.message?.content === 'string') {
+          content = choice.message.content;
+        } else if (Array.isArray(choice.message?.content)) {
+          content = choice.message.content
+            .map((part: any) => (typeof part === 'string' ? part : part?.text ?? ''))
+            .join('');
+        }
+
+        if (content) {
+          controller.enqueue(encoder.encode(content));
+        }
+      } catch (error) {
+        console.error('Failed to parse OpenAI stream payload', error);
+      }
+    }
+
+    return false;
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) {
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split('\n\n');
+    buffer = events.pop() ?? '';
+
+    for (const event of events) {
+      if (emitFromEvent(event)) {
+        return;
+      }
+    }
+  }
+
+  if (buffer && emitFromEvent(buffer)) {
+    return;
+  }
+};
+
 export default async function handler(req: Request): Promise<Response> {
   if (req.method !== 'POST') {
     return new Response('Method Not Allowed', { status: 405 });
@@ -157,42 +233,47 @@ export default async function handler(req: Request): Promise<Response> {
     if (!text || (lang !== 'en' && lang !== 'zh') || !model) {
       return new Response('Invalid request body. "text", "lang", and "model" are required.', { status: 400 });
     }
-    
-    // FIX: Refactor to use @google/genai SDK for making requests.
-    const systemInstruction = lang === 'zh' ? PROMPT_ZH : PROMPT_EN;
-    const ai = new GoogleGenAI({ apiKey: API_KEY });
 
-    const geminiStream = await ai.models.generateContentStream({
-      model,
-      contents: text,
-      config: {
-        systemInstruction,
+    const systemInstruction = lang === 'zh' ? PROMPT_ZH : PROMPT_EN;
+    const response = await fetch(buildOpenAiUrl('/chat/completions'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${API_KEY}`,
+      },
+      body: JSON.stringify({
+        model,
+        stream: true,
+        messages: [
+          { role: 'system', content: systemInstruction },
+          { role: 'user', content: text },
+        ],
+      }),
+    });
+
+    if (!response.ok || !response.body) {
+      const errorText = await response.text();
+      return new Response(`Server Error: ${response.status} ${response.statusText} - ${errorText}`, { status: response.status });
+    }
+
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        streamChatCompletion(response.body!, controller).then(
+          () => controller.close(),
+          (error) => controller.error(error),
+        );
       },
     });
 
-    const stream = new ReadableStream({
-      async start(controller) {
-        const encoder = new TextEncoder();
-        for await (const chunk of geminiStream) {
-          const content = chunk.text;
-          if (content) {
-            controller.enqueue(encoder.encode(content));
-          }
-        }
-        controller.close();
-      }
-    });
-    
-    return new Response(stream, { 
-      headers: { 
+    return new Response(stream, {
+      headers: {
         'Content-Type': 'text/plain; charset=utf-8',
         'X-Content-Type-Options': 'nosniff',
-      }
+      },
     });
-
   } catch (error) {
-    console.error("Error in server-side API call:", error);
-    const errorMessage = error instanceof Error ? error.message : "An unknown error occurred on the server.";
+    console.error('Error in server-side API call:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred on the server.';
     return new Response(`Server Error: ${errorMessage}`, { status: 500 });
   }
 }

@@ -48,7 +48,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
   const [showApiKey, setShowApiKey] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [testStatus, setTestStatus] = useState<'idle' | 'success' | 'failure'>('idle');
-  const [availableModels, setAvailableModels] = useState<any[]>([]);
+  const [availableModels, setAvailableModels] = useState<{ id: string }[]>([]);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [modelSearchTerm, setModelSearchTerm] = useState('');
   const modelManagerRef = useRef<HTMLDivElement>(null);
@@ -103,30 +103,39 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
     });
   };
 
-  // FIX: Refactor connection test to query the Gemini API for available models.
   const handleTestConnection = async () => {
     setIsTesting(true);
     setTestStatus('idle');
     setAvailableModels([]);
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${localSettings.apiKey}`);
-      
-      if (response.ok) {
-        const data = await response.json();
-        if (data && Array.isArray(data.models)) {
-            const models = data.models.map((m: any) => ({ 
-              id: m.name.replace('models/', '') 
-            })).filter((m: any) => m.id.includes('gemini'));
-            const sortedModels = models.sort((a: any, b: any) => a.id.localeCompare(b.id));
-            setAvailableModels(sortedModels);
-            setTestStatus('success');
-            setIsModelDropdownOpen(true);
-        } else {
-             setTestStatus('failure');
-        }
-      } else {
+      const baseUrl = localSettings.openAiApiUrl.trim() || 'https://api.openai.com/v1';
+      const response = await fetch(`${baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl}/models`, {
+        headers: {
+          Authorization: `Bearer ${localSettings.apiKey}`,
+        },
+      });
+
+      if (!response.ok) {
         setTestStatus('failure');
+        return;
       }
+
+      const data = await response.json();
+      const models = Array.isArray(data?.data)
+        ? (data.data as Array<{ id?: string }>)
+            .map((model) => ({ id: typeof model?.id === 'string' ? model.id : '' }))
+            .filter((model): model is { id: string } => Boolean(model.id))
+            .sort((a, b) => a.id.localeCompare(b.id))
+        : [];
+
+      if (models.length === 0) {
+        setTestStatus('failure');
+        return;
+      }
+
+      setAvailableModels(models);
+      setTestStatus('success');
+      setIsModelDropdownOpen(true);
     } catch (error) {
       setTestStatus('failure');
     } finally {
@@ -263,7 +272,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
         <footer className="flex justify-end items-center gap-3 p-4 border-t border-gray-200 dark:border-gray-700 flex-shrink-0 bg-gray-50 dark:bg-gray-800/50 rounded-b-xl">
           <button
               onClick={handleTestConnection}
-              disabled={isTesting || !localSettings.apiKey}
+              disabled={
+                isTesting ||
+                !localSettings.apiKey ||
+                !localSettings.openAiApiUrl.trim()
+              }
               className={`flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold rounded-md transition-colors duration-300 disabled:opacity-50 disabled:cursor-not-allowed ${
                 testStatus === 'success' 
                   ? 'bg-green-100 text-green-700 dark:bg-green-800/50 dark:text-green-300'

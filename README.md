@@ -15,6 +15,6 @@ View your app in AI Studio: https://ai.studio/apps/drive/1wxlfqkd2jU9lPvEVXE9H_9
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your OPENAI API KEY
+2. Set the `API_KEY` in [.env.local](.env.local) to your OPENAI API KEY (and optionally override `OPENAI_API_URL` if you are using a compatible proxy)
 3. Run the app:
    `npm run dev`
