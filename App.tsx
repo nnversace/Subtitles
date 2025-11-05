@@ -75,7 +75,7 @@ const translations = {
     history: "历史",
     generate: "生成字幕",
     generating: "生成中...",
-    clear: "清除",
+    clear: "清屏",
     historyPanelTitle: "生成历史",
     historyEmpty: "您的生成历史为空。",
     clearHistory: "清除历史",
