@@ -40,7 +40,7 @@ export const TextAreaInput: React.FC<TextAreaInputProps> = ({
         onChange={onChange}
         placeholder={placeholder}
         disabled={disabled}
-        className="w-full flex-grow min-h-0 h-full overflow-y-auto bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 border-0 focus:ring-0 rounded-md resize-none p-2 text-base leading-relaxed transition-all duration-300 disabled:opacity-60"
+        className="w-full flex-grow min-h-0 h-full overflow-y-auto bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 border-0 focus:ring-0 rounded-md resize-none p-2 pr-4 text-base leading-relaxed transition-all duration-300 disabled:opacity-60 custom-scrollbar"
         rows={15}
       />
     </div>

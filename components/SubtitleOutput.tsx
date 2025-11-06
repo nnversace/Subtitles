@@ -85,7 +85,7 @@ export const SubtitleOutput: React.FC<SubtitleOutputProps> = ({ label, subtitles
           </IconButton>
         )}
       </div>
-      <div id="subtitle-output" className="w-full flex-grow min-h-0 bg-gray-100 dark:bg-gray-800/50 rounded-lg p-3 overflow-y-auto text-base">
+      <div id="subtitle-output" className="w-full flex-grow min-h-0 bg-gray-100 dark:bg-gray-800/50 rounded-lg p-3 pr-4 overflow-y-auto text-base custom-scrollbar">
         {renderContent()}
       </div>
     </div>

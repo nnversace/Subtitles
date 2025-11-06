@@ -352,8 +352,8 @@ const App: React.FC = () => {
         toggleLanguageTooltip={texts.toggleLanguage}
         openSettingsTooltip={texts.openSettings}
       />
-      <main className="flex-grow w-full max-w-6xl mx-auto p-4 md:p-6 lg:p-8 flex flex-col min-h-0">
-        <div className="flex-grow grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 mb-24 min-h-0">
+      <main className="flex-grow w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col min-h-0 gap-8">
+        <div className="flex-grow grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 min-h-0">
           <TextAreaInput
             label={texts.yourScript}
             value={copywriting}
@@ -374,17 +374,9 @@ const App: React.FC = () => {
             errorPrefix={texts.errorPrefix}
           />
         </div>
-      </main>
-      <input
-        type="file"
-        ref={fileInputRef}
-        onChange={handleFileChange}
-        className="hidden"
-        accept=".txt,.md,.srt,.vtt,.docx"
-      />
-      <div className="fixed bottom-0 left-0 right-0 bg-gray-50/80 dark:bg-gray-900/80 backdrop-blur-sm">
-        <div className="container mx-auto p-4 border-t border-gray-200 dark:border-gray-700">
-            <div className="max-w-6xl mx-auto flex flex-col items-center gap-3 sm:gap-4">
+        <div className="sticky bottom-0 z-10 -mx-4 sm:-mx-6 lg:-mx-8">
+          <div className="bg-gray-50/90 dark:bg-gray-900/90 backdrop-blur-sm border-t border-gray-200 dark:border-gray-700">
+            <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col items-center gap-3 sm:gap-4">
               <div className="w-full flex justify-center">
                 <ModelSelector
                   value={selectedModel}
@@ -394,34 +386,42 @@ const App: React.FC = () => {
                   label={texts.selectModel}
                 />
               </div>
-              <div className="flex justify-center items-center gap-2 sm:gap-4">
-              <button
-                onClick={() => setIsHistoryPanelOpen(true)}
-                disabled={isLoading}
-                className="px-4 py-3 text-sm sm:px-6 sm:text-base font-semibold text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors duration-300"
-              >
-                {texts.history}
-              </button>
+              <div className="flex flex-wrap justify-center items-center gap-2 sm:gap-4">
+                <button
+                  onClick={() => setIsHistoryPanelOpen(true)}
+                  disabled={isLoading}
+                  className="px-4 py-3 text-sm sm:px-6 sm:text-base font-semibold text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors duration-300"
+                >
+                  {texts.history}
+                </button>
 
-              <button
-                onClick={handleGenerate}
-                disabled={!copywriting.trim() || isLoading || !selectedModel}
-                className="flex items-center justify-center gap-2 px-4 py-3 text-sm sm:px-6 sm:text-base font-semibold text-white bg-blue-600 rounded-xl shadow-sm hover:bg-blue-500 disabled:bg-gray-400 dark:disabled:bg-gray-500 disabled:cursor-not-allowed transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-50 dark:focus:ring-offset-gray-900 focus:ring-blue-500"
-              >
-                <MagicIcon className="w-5 h-5" />
-                <span className="hidden sm:inline">{isLoading ? texts.generating : texts.generate}</span>
-              </button>
-              <button
-                onClick={handleClear}
-                disabled={isLoading}
-                className="px-4 py-3 text-sm sm:px-6 sm:text-base font-semibold text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors duration-300"
-              >
-                {texts.clear}
-              </button>
+                <button
+                  onClick={handleGenerate}
+                  disabled={!copywriting.trim() || isLoading || !selectedModel}
+                  className="flex items-center justify-center gap-2 px-4 py-3 text-sm sm:px-6 sm:text-base font-semibold text-white bg-blue-600 rounded-xl shadow-sm hover:bg-blue-500 disabled:bg-gray-400 dark:disabled:bg-gray-500 disabled:cursor-not-allowed transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-50 dark:focus:ring-offset-gray-900 focus:ring-blue-500"
+                >
+                  <MagicIcon className="w-5 h-5" />
+                  <span className="hidden sm:inline">{isLoading ? texts.generating : texts.generate}</span>
+                </button>
+                <button
+                  onClick={handleClear}
+                  disabled={isLoading}
+                  className="px-4 py-3 text-sm sm:px-6 sm:text-base font-semibold text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors duration-300"
+                >
+                  {texts.clear}
+                </button>
               </div>
             </div>
+          </div>
         </div>
-      </div>
+      </main>
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        className="hidden"
+        accept=".txt,.md,.srt,.vtt,.docx"
+      />
       <HistoryPanel
         isOpen={isHistoryPanelOpen}
         history={history}
