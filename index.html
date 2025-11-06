@@ -17,25 +17,29 @@
       .custom-scrollbar {
         scrollbar-width: thin;
         scrollbar-color: rgba(148, 163, 184, 0.6) transparent;
+        scrollbar-gutter: stable both-edges;
       }
       .custom-scrollbar::-webkit-scrollbar {
-        width: 10px;
+        width: 12px;
       }
       .custom-scrollbar::-webkit-scrollbar-track {
-        background: transparent;
+        background: rgba(148, 163, 184, 0.08);
         border-radius: 9999px;
       }
       .custom-scrollbar::-webkit-scrollbar-thumb {
         background-color: rgba(148, 163, 184, 0.6);
         border-radius: 9999px;
-        border: 2px solid transparent;
+        border: 3px solid transparent;
         background-clip: content-box;
       }
       .dark .custom-scrollbar {
-        scrollbar-color: rgba(148, 163, 184, 0.4) transparent;
+        scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+      }
+      .dark .custom-scrollbar::-webkit-scrollbar-track {
+        background: rgba(148, 163, 184, 0.12);
       }
       .dark .custom-scrollbar::-webkit-scrollbar-thumb {
-        background-color: rgba(148, 163, 184, 0.4);
+        background-color: rgba(148, 163, 184, 0.35);
       }
     </style>
     <script>

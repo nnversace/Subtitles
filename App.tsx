@@ -345,7 +345,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 flex flex-col transition-colors duration-300">
+    <div className="h-screen overflow-hidden bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 flex flex-col transition-colors duration-300">
       <Header
         title={texts.title}
         aiText={texts.ai}
@@ -357,29 +357,33 @@ const App: React.FC = () => {
         toggleLanguageTooltip={texts.toggleLanguage}
         openSettingsTooltip={texts.openSettings}
       />
-      <main className="flex-grow w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col min-h-0 gap-8">
-        <div className="flex-grow grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 min-h-0">
-          <TextAreaInput
-            label={texts.yourScript}
-            value={copywriting}
-            onChange={(e) => setCopywriting(e.target.value)}
-            placeholder={texts.placeholder}
-            disabled={isLoading}
-            onUploadClick={handleUploadClick}
-            uploadTooltip={texts.uploadTooltip}
-          />
-          <SubtitleOutput
-            label={texts.generatedSubtitles}
-            subtitles={subtitles}
-            isLoading={isLoading}
-            error={error}
-            placeholder={texts.outputPlaceholder}
-            copyTooltip={texts.copyTooltip}
-            copiedTooltip={texts.copiedTooltip}
-            errorPrefix={texts.errorPrefix}
-          />
+      <main className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col min-h-0 gap-8 overflow-hidden">
+        <div className="flex-1 min-h-0 flex flex-col md:flex-row gap-6 md:gap-8">
+          <div className="flex-1 min-h-0">
+            <TextAreaInput
+              label={texts.yourScript}
+              value={copywriting}
+              onChange={(e) => setCopywriting(e.target.value)}
+              placeholder={texts.placeholder}
+              disabled={isLoading}
+              onUploadClick={handleUploadClick}
+              uploadTooltip={texts.uploadTooltip}
+            />
+          </div>
+          <div className="flex-1 min-h-0">
+            <SubtitleOutput
+              label={texts.generatedSubtitles}
+              subtitles={subtitles}
+              isLoading={isLoading}
+              error={error}
+              placeholder={texts.outputPlaceholder}
+              copyTooltip={texts.copyTooltip}
+              copiedTooltip={texts.copiedTooltip}
+              errorPrefix={texts.errorPrefix}
+            />
+          </div>
         </div>
-        <div className="sticky bottom-0 z-10 -mx-4 sm:-mx-6 lg:-mx-8">
+        <div className="shrink-0 -mx-4 sm:-mx-6 lg:-mx-8">
           <div className="bg-gray-50/90 dark:bg-gray-900/90 backdrop-blur-sm border-t border-gray-200 dark:border-gray-700">
             <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col items-center gap-3 sm:gap-4">
               <div className="w-full flex justify-center">
