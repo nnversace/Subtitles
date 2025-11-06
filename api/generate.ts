@@ -3,9 +3,25 @@
 // For example, in a Next.js project, this would be `pages/api/generate.ts`.
 // In a standalone Node.js server, this logic would be part of a route handler.
 
-const API_KEY = process.env.OPENAI_API_KEY || process.env.API_KEY;
-const rawApiUrl = process.env.OPENAI_API_URL || process.env.API_URL || 'https://api.openai.com';
+const API_KEY =
+  process.env.OPENROUTER_API_KEY ||
+  process.env.OPENAI_API_KEY ||
+  process.env.API_KEY;
+const rawApiUrl =
+  process.env.OPENROUTER_API_URL ||
+  process.env.OPENAI_API_URL ||
+  process.env.API_URL ||
+  'https://api.openai.com';
 const API_URL = rawApiUrl.replace(/\/$/, '');
+const isOpenRouter = API_URL.includes('openrouter.ai');
+const openRouterReferer =
+  process.env.OPENROUTER_SITE_URL ||
+  process.env.SITE_URL ||
+  process.env.APP_URL;
+const openRouterTitle =
+  process.env.OPENROUTER_APP_TITLE ||
+  process.env.APP_TITLE ||
+  'Subtitles Generator';
 
 if (!API_KEY) {
   console.warn("API_KEY environment variable not set on the server");
@@ -156,12 +172,23 @@ export default async function handler(req: Request): Promise<Response> {
     }
 
     const systemInstruction = lang === 'zh' ? PROMPT_ZH : PROMPT_EN;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${API_KEY}`,
+    };
+
+    if (isOpenRouter) {
+      if (openRouterReferer) {
+        headers['HTTP-Referer'] = openRouterReferer;
+      }
+      if (openRouterTitle) {
+        headers['X-Title'] = openRouterTitle;
+      }
+    }
+
     const response = await fetch(`${API_URL}${CHAT_COMPLETION_PATH}`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${API_KEY}`,
-      },
+      headers,
       body: JSON.stringify({
         model,
         stream: true,

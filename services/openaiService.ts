@@ -128,6 +128,43 @@ Now, process the following text:
 
 const CHAT_COMPLETION_PATH = '/v1/chat/completions';
 
+const isOpenRouterBase = (url: string) => url.includes('openrouter.ai');
+
+const resolveClientOrigin = () => {
+  if (typeof window !== 'undefined' && window.location) {
+    return window.location.origin;
+  }
+  return undefined;
+};
+
+const resolveClientTitle = () => {
+  if (typeof document !== 'undefined' && document.title) {
+    return document.title;
+  }
+  return undefined;
+};
+
+const buildClientHeaders = (settings: AppSettings) => {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${settings.apiKey}`,
+  };
+
+  const baseUrl = ensureBaseUrl(settings.apiUrl);
+  if (isOpenRouterBase(baseUrl)) {
+    const origin = resolveClientOrigin();
+    const title = resolveClientTitle();
+    if (origin) {
+      headers['HTTP-Referer'] = origin;
+    }
+    if (title) {
+      headers['X-Title'] = title;
+    }
+  }
+
+  return headers;
+};
+
 interface GenerateSubtitlesParams {
   text: string;
   lang: 'en' | 'zh';
@@ -253,10 +290,7 @@ export const generateSubtitles = async ({
 
       const response = await fetch(`${baseUrl}${CHAT_COMPLETION_PATH}`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${settings.apiKey}`,
-        },
+        headers: buildClientHeaders(settings),
         signal,
         body: JSON.stringify({
           model,

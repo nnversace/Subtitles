@@ -114,10 +114,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
     setAvailableModels([]);
     try {
       const baseUrl = localSettings.apiUrl.replace(/\/$/, '');
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${localSettings.apiKey}`,
+      };
+
+      if (baseUrl.includes('openrouter.ai')) {
+        if (typeof window !== 'undefined' && window.location) {
+          headers['HTTP-Referer'] = window.location.origin;
+        }
+        if (typeof document !== 'undefined' && document.title) {
+          headers['X-Title'] = document.title;
+        }
+      }
+
       const response = await fetch(`${baseUrl}/v1/models`, {
-        headers: {
-          Authorization: `Bearer ${localSettings.apiKey}`,
-        },
+        headers,
       });
 
       if (response.ok) {

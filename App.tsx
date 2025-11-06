@@ -120,8 +120,13 @@ const resolveEnvString = (value: unknown, fallback = ''): string => {
 
 // Provide default settings seeded from environment variables when available.
 const defaultSettings: AppSettings = {
-  apiKey: resolveEnvString(import.meta.env.VITE_OPENAI_API_KEY),
-  apiUrl: resolveEnvString(import.meta.env.VITE_OPENAI_API_URL, 'https://api.openai.com'),
+  apiKey: resolveEnvString(
+    import.meta.env.VITE_OPENAI_API_KEY || import.meta.env.VITE_OPENROUTER_API_KEY
+  ),
+  apiUrl: resolveEnvString(
+    import.meta.env.VITE_OPENAI_API_URL || import.meta.env.VITE_OPENROUTER_API_URL,
+    'https://api.openai.com'
+  ),
   useClientSide: true,
   selectedModels: ['gpt-4o-mini', 'gpt-4o'],
 };
