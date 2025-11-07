@@ -1,6 +1,3 @@
-
-// FIX: Import GoogleGenAI to use the official Gemini API SDK.
-import { GoogleGenAI } from '@google/genai';
 import { AppSettings } from '../components/SettingsModal';
 
 const PROMPT_ZH = `
@@ -129,6 +126,44 @@ The final goal is to simulate natural speech pauses and create visual rhythm. Li
 Now, process the following text:
 `;
 
+const CHAT_COMPLETION_PATH = '/v1/chat/completions';
+
+const isOpenRouterBase = (url: string) => url.includes('openrouter.ai');
+
+const resolveClientOrigin = () => {
+  if (typeof window !== 'undefined' && window.location) {
+    return window.location.origin;
+  }
+  return undefined;
+};
+
+const resolveClientTitle = () => {
+  if (typeof document !== 'undefined' && document.title) {
+    return document.title;
+  }
+  return undefined;
+};
+
+const buildClientHeaders = (settings: AppSettings) => {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${settings.apiKey}`,
+  };
+
+  const baseUrl = ensureBaseUrl(settings.apiUrl);
+  if (isOpenRouterBase(baseUrl)) {
+    const origin = resolveClientOrigin();
+    const title = resolveClientTitle();
+    if (origin) {
+      headers['HTTP-Referer'] = origin;
+    }
+    if (title) {
+      headers['X-Title'] = title;
+    }
+  }
+
+  return headers;
+};
 
 interface GenerateSubtitlesParams {
   text: string;
@@ -136,7 +171,103 @@ interface GenerateSubtitlesParams {
   model: string;
   settings: AppSettings;
   onStreamUpdate: (chunk: string) => void;
+  onStreamComplete?: () => void;
+  onStreamError?: (error: Error) => void;
+  signal?: AbortSignal;
 }
+
+const ensureBaseUrl = (url: string) => {
+  if (!url) return '';
+  return url.endsWith('/') ? url.slice(0, -1) : url;
+};
+
+const processStreamPayload = (
+  payload: unknown,
+  onStreamUpdate: (chunk: string) => void
+) => {
+  if (!payload || typeof payload !== 'object') return;
+  const choice = (payload as any).choices?.[0];
+  if (!choice) return;
+
+  const delta = choice.delta?.content ?? choice.message?.content;
+  if (typeof delta === 'string') {
+    onStreamUpdate(delta);
+    return;
+  }
+
+  if (Array.isArray(delta)) {
+    for (const part of delta) {
+      if (typeof part === 'string') {
+        onStreamUpdate(part);
+      } else if (part?.type === 'text' && typeof part.text === 'string') {
+        onStreamUpdate(part.text);
+      }
+    }
+  }
+};
+
+const handleChatCompletionStream = async (
+  response: Response,
+  onStreamUpdate: (chunk: string) => void,
+  options: { signal?: AbortSignal } = {}
+) => {
+  if (!response.body) {
+    throw new Error('The response body is empty.');
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    if (options.signal?.aborted) {
+      reader.releaseLock();
+      throw new DOMException('The request was aborted.', 'AbortError');
+    }
+
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const segments = buffer.split('\n\n');
+    buffer = segments.pop() ?? '';
+
+    for (const segment of segments) {
+      const trimmed = segment.trim();
+      if (!trimmed || !trimmed.startsWith('data:')) continue;
+
+      const data = trimmed.slice(5).trim();
+      if (!data || data === '[DONE]') {
+        continue;
+      }
+
+      try {
+        const parsed = JSON.parse(data);
+        processStreamPayload(parsed, onStreamUpdate);
+      } catch (error) {
+        console.error('Failed to parse stream chunk', error, data);
+      }
+    }
+  }
+
+  const finalText = decoder.decode();
+  if (finalText) {
+    buffer += finalText;
+  }
+
+  const remaining = buffer.trim();
+  if (remaining && remaining.startsWith('data:')) {
+    const data = remaining.slice(5).trim();
+    if (data && data !== '[DONE]') {
+      try {
+        const parsed = JSON.parse(data);
+        processStreamPayload(parsed, onStreamUpdate);
+      } catch (error) {
+        console.error('Failed to parse final stream chunk', error, data);
+      }
+    }
+  }
+};
 
 export const generateSubtitles = async ({
   text,
@@ -144,31 +275,46 @@ export const generateSubtitles = async ({
   model,
   settings,
   onStreamUpdate,
+  onStreamComplete,
+  onStreamError,
+  signal,
 }: GenerateSubtitlesParams): Promise<void> => {
   const systemInstruction = lang === 'zh' ? PROMPT_ZH : PROMPT_EN;
 
   try {
     if (settings.useClientSide) {
-      // FIX: Use the @google/genai SDK for client-side streaming requests.
-      const ai = new GoogleGenAI({ apiKey: settings.apiKey });
-      const responseStream = await ai.models.generateContentStream({
-        model,
-        contents: text,
-        config: {
-          systemInstruction,
-        },
+      const baseUrl = ensureBaseUrl(settings.apiUrl);
+      if (!baseUrl) {
+        throw new Error('API URL is required for client-side requests.');
+      }
+
+      const response = await fetch(`${baseUrl}${CHAT_COMPLETION_PATH}`, {
+        method: 'POST',
+        headers: buildClientHeaders(settings),
+        signal,
+        body: JSON.stringify({
+          model,
+          stream: true,
+          messages: [
+            { role: 'system', content: systemInstruction },
+            { role: 'user', content: text },
+          ],
+        }),
       });
 
-      for await (const chunk of responseStream) {
-        onStreamUpdate(chunk.text);
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`API Error: ${response.status} ${response.statusText} - ${errorText}`);
       }
+
+      await handleChatCompletionStream(response, onStreamUpdate, { signal });
     } else {
-      // Server-side request to our own backend proxy
       const response = await fetch('/api/generate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
+        signal,
         body: JSON.stringify({ text, lang, model }),
       });
 
@@ -177,25 +323,23 @@ export const generateSubtitles = async ({
         throw new Error(`API Error: ${response.status} ${response.statusText} - ${errorText}`);
       }
 
-      if (!response.body) {
-        throw new Error("The response body is empty.");
-      }
-
-      // FIX: Correctly handle raw text stream from server proxy instead of parsing SSE.
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        onStreamUpdate(decoder.decode(value));
-      }
+      await handleChatCompletionStream(response, onStreamUpdate, { signal });
     }
+
+    onStreamComplete?.();
   } catch (error) {
-    console.error("Error during subtitle generation:", error);
-    if (error instanceof Error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
       throw error;
     }
-    throw new Error("An unknown error occurred while communicating with the AI service.");
+
+    console.error('Error during subtitle generation:', error);
+    if (error instanceof Error) {
+      onStreamError?.(error);
+      throw error;
+    }
+
+    const fallbackError = new Error('An unknown error occurred while communicating with the AI service.');
+    onStreamError?.(fallbackError);
+    throw fallbackError;
   }
 };

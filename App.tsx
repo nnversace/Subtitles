@@ -4,9 +4,10 @@ import { Header } from './components/Header';
 import { TextAreaInput } from './components/TextAreaInput';
 import { SubtitleOutput } from './components/SubtitleOutput';
 import { MagicIcon } from './components/icons/MagicIcon';
-import { generateSubtitles } from './services/geminiService';
+import { generateSubtitles } from './services/openaiService';
 import { HistoryPanel } from './components/HistoryPanel';
 import { SettingsModal, AppSettings } from './components/SettingsModal';
+import { ModelSelector } from './components/ModelSelector';
 
 // Add mammoth to the window scope for TypeScript
 declare var mammoth: any;
@@ -27,6 +28,7 @@ const translations = {
     yourScript: "Your Script",
     placeholder: "Paste your script or copywriting here...",
     generatedSubtitles: "Generated Subtitles",
+    selectModel: "Select Model",
     outputPlaceholder: "Your generated subtitles will appear here.",
     history: "History",
     generate: "Generate Subtitles",
@@ -46,7 +48,9 @@ const translations = {
     settings: {
       title: "Settings",
       apiKey: "API Key",
-      apiKeyPlaceholder: "Enter your Gemini API Key",
+      apiKeyPlaceholder: "Enter your OpenAI-compatible API Key",
+      apiUrl: "API URL",
+      apiUrlPlaceholder: "https://api.openai.com",
       useClientSide: "Use client-side request mode",
       useClientSideHint: "Client-side mode sends requests directly from the browser. Required for model testing.",
       modelList: "Model List",
@@ -69,6 +73,7 @@ const translations = {
     yourScript: "你的文稿",
     placeholder: "在此处粘贴您的脚本或文案...",
     generatedSubtitles: "生成的字幕",
+    selectModel: "选择模型",
     outputPlaceholder: "您生成的字幕将显示在此处。",
     history: "历史",
     generate: "生成字幕",
@@ -88,7 +93,9 @@ const translations = {
     settings: {
       title: "设置",
       apiKey: "API Key",
-      apiKeyPlaceholder: "请输入您的 Gemini API Key",
+      apiKeyPlaceholder: "请输入 OpenAI 兼容的 API Key",
+      apiUrl: "API 地址",
+      apiUrlPlaceholder: "https://api.openai.com",
       useClientSide: "使用客户端请求模式",
       useClientSideHint: "客户端请求模式将从浏览器直接发起对话请求。模型测试需要开启此项。",
       modelList: "模型列表",
@@ -107,11 +114,21 @@ const translations = {
   },
 };
 
-// FIX: Update settings to be Gemini-specific, removing openaiProxyUrl and updating default models.
+const resolveEnvString = (value: unknown, fallback = ''): string => {
+  return typeof value === 'string' && value.trim().length > 0 ? value : fallback;
+};
+
+// Provide default settings seeded from environment variables when available.
 const defaultSettings: AppSettings = {
-  apiKey: process.env.API_KEY || '',
+  apiKey: resolveEnvString(
+    import.meta.env.VITE_OPENAI_API_KEY || import.meta.env.VITE_OPENROUTER_API_KEY
+  ),
+  apiUrl: resolveEnvString(
+    import.meta.env.VITE_OPENAI_API_URL || import.meta.env.VITE_OPENROUTER_API_URL,
+    'https://api.openai.com'
+  ),
   useClientSide: true,
-  selectedModels: ['gemini-2.5-pro', 'gemini-flash-latest'],
+  selectedModels: ['gpt-4o-mini', 'gpt-4o'],
 };
 
 const App: React.FC = () => {
@@ -124,6 +141,7 @@ const App: React.FC = () => {
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [selectedModel, setSelectedModel] = useState<string>('');
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const [language, setLanguage] = useState<Language>(() => (localStorage.getItem('language') as Language) || 'zh');
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('theme') as Theme) || 'light');
@@ -136,7 +154,10 @@ const App: React.FC = () => {
     try {
       const savedSettings = localStorage.getItem('appSettings');
       if (savedSettings) {
-        const parsedSettings = JSON.parse(savedSettings);
+        const parsedSettings = { ...defaultSettings, ...JSON.parse(savedSettings) };
+        if (!parsedSettings.selectedModels || parsedSettings.selectedModels.length === 0) {
+          parsedSettings.selectedModels = [...defaultSettings.selectedModels];
+        }
         setSettings(parsedSettings);
         if (parsedSettings.selectedModels?.length > 0) {
           setSelectedModel(parsedSettings.selectedModels[0]);
@@ -184,13 +205,20 @@ const App: React.FC = () => {
 
   const handleGenerate = useCallback(async () => {
     if (!copywriting.trim() || isLoading || !selectedModel) return;
-    
+
     // FIX: Updated API Key check to be more robust.
-    if (settings.useClientSide && !settings.apiKey) {
-      setError("API Key is required for client-side requests. Please set it in the settings.");
+    if (settings.useClientSide && (!settings.apiKey || !settings.apiUrl)) {
+      setError("API Key and API URL are required for client-side requests. Please set them in the settings.");
       setIsSettingsModalOpen(true);
       return;
     }
+
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     setIsLoading(true);
     setError(null);
@@ -199,43 +227,70 @@ const App: React.FC = () => {
 
     try {
       await generateSubtitles({
-        text: copywriting, 
-        lang: language, 
+        text: copywriting,
+        lang: language,
         model: selectedModel,
         settings,
         onStreamUpdate: (chunk) => {
           setSubtitles(prev => prev + chunk);
           subtitlesRef.current += chunk;
-        }
+        },
+        onStreamComplete: () => {
+          if (!subtitlesRef.current) {
+            return;
+          }
+
+          const newHistoryItem: HistoryItem = {
+            id: Date.now(),
+            copywriting,
+            subtitles: subtitlesRef.current,
+          };
+
+          setHistory(prevHistory => {
+            const updatedHistory = [newHistoryItem, ...prevHistory].slice(0, 50);
+            localStorage.setItem('subtitleHistory', JSON.stringify(updatedHistory));
+            return updatedHistory;
+          });
+        },
+        onStreamError: (streamError) => {
+          setError(streamError.message);
+        },
+        signal: controller.signal,
       });
-
-      if (subtitlesRef.current) {
-        const newHistoryItem: HistoryItem = {
-          id: Date.now(),
-          copywriting,
-          subtitles: subtitlesRef.current,
-        };
-        setHistory(prevHistory => {
-          const updatedHistory = [newHistoryItem, ...prevHistory].slice(0, 50); // Keep max 50 items
-          localStorage.setItem('subtitleHistory', JSON.stringify(updatedHistory));
-          return updatedHistory;
-        });
-      }
-
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
-      setError(errorMessage);
-      console.error(err);
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        console.debug('Subtitle generation aborted');
+      } else {
+        const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
+        setError(errorMessage);
+        console.error(err);
+      }
     } finally {
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+      }
       setIsLoading(false);
     }
   }, [copywriting, isLoading, language, selectedModel, settings]);
 
   const handleClear = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
     setCopywriting('');
     setSubtitles('');
     setError(null);
+    subtitlesRef.current = '';
   };
+
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
 
   const handleClearHistory = () => {
     setHistory([]);
@@ -290,7 +345,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 flex flex-col transition-colors duration-300">
+    <div className="h-screen overflow-hidden bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 flex flex-col transition-colors duration-300">
       <Header
         title={texts.title}
         aiText={texts.ai}
@@ -302,30 +357,71 @@ const App: React.FC = () => {
         toggleLanguageTooltip={texts.toggleLanguage}
         openSettingsTooltip={texts.openSettings}
       />
-      <main className="flex-grow w-full max-w-6xl mx-auto p-4 md:p-6 lg:p-8 flex flex-col">
-        <div className="flex-grow grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 mb-24 min-h-0">
-          <TextAreaInput
-            label={texts.yourScript}
-            value={copywriting}
-            onChange={(e) => setCopywriting(e.target.value)}
-            placeholder={texts.placeholder}
-            disabled={isLoading}
-            onUploadClick={handleUploadClick}
-            uploadTooltip={texts.uploadTooltip}
-            models={settings.selectedModels}
-            selectedModel={selectedModel}
-            onModelChange={setSelectedModel}
-          />
-          <SubtitleOutput
-            label={texts.generatedSubtitles}
-            subtitles={subtitles}
-            isLoading={isLoading}
-            error={error}
-            placeholder={texts.outputPlaceholder}
-            copyTooltip={texts.copyTooltip}
-            copiedTooltip={texts.copiedTooltip}
-            errorPrefix={texts.errorPrefix}
-          />
+      <main className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col min-h-0 gap-8 overflow-hidden">
+        <div className="flex-1 min-h-0 flex flex-col md:flex-row gap-6 md:gap-8">
+          <div className="flex-1 min-h-0">
+            <TextAreaInput
+              label={texts.yourScript}
+              value={copywriting}
+              onChange={(e) => setCopywriting(e.target.value)}
+              placeholder={texts.placeholder}
+              disabled={isLoading}
+              onUploadClick={handleUploadClick}
+              uploadTooltip={texts.uploadTooltip}
+            />
+          </div>
+          <div className="flex-1 min-h-0">
+            <SubtitleOutput
+              label={texts.generatedSubtitles}
+              subtitles={subtitles}
+              isLoading={isLoading}
+              error={error}
+              placeholder={texts.outputPlaceholder}
+              copyTooltip={texts.copyTooltip}
+              copiedTooltip={texts.copiedTooltip}
+              errorPrefix={texts.errorPrefix}
+            />
+          </div>
+        </div>
+        <div className="shrink-0 -mx-4 sm:-mx-6 lg:-mx-8">
+          <div className="bg-gray-50/90 dark:bg-gray-900/90 backdrop-blur-sm border-t border-gray-200 dark:border-gray-700">
+            <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col items-center gap-3 sm:gap-4">
+              <div className="w-full flex justify-center">
+                <ModelSelector
+                  value={selectedModel}
+                  onChange={setSelectedModel}
+                  disabled={isLoading}
+                  models={settings.selectedModels}
+                  label={texts.selectModel}
+                />
+              </div>
+              <div className="flex flex-wrap justify-center items-center gap-2 sm:gap-4">
+                <button
+                  onClick={() => setIsHistoryPanelOpen(true)}
+                  disabled={isLoading}
+                  className="px-4 py-3 text-sm sm:px-6 sm:text-base font-semibold text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors duration-300"
+                >
+                  {texts.history}
+                </button>
+
+                <button
+                  onClick={handleGenerate}
+                  disabled={!copywriting.trim() || isLoading || !selectedModel}
+                  className="flex items-center justify-center gap-2 px-4 py-3 text-sm sm:px-6 sm:text-base font-semibold text-white bg-blue-600 rounded-xl shadow-sm hover:bg-blue-500 disabled:bg-gray-400 dark:disabled:bg-gray-500 disabled:cursor-not-allowed transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-50 dark:focus:ring-offset-gray-900 focus:ring-blue-500"
+                >
+                  <MagicIcon className="w-5 h-5" />
+                  <span className="hidden sm:inline">{isLoading ? texts.generating : texts.generate}</span>
+                </button>
+                <button
+                  onClick={handleClear}
+                  disabled={isLoading}
+                  className="px-4 py-3 text-sm sm:px-6 sm:text-base font-semibold text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors duration-300"
+                >
+                  {texts.clear}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </main>
       <input
@@ -335,35 +431,6 @@ const App: React.FC = () => {
         className="hidden"
         accept=".txt,.md,.srt,.vtt,.docx"
       />
-      <div className="fixed bottom-0 left-0 right-0 bg-gray-50/80 dark:bg-gray-900/80 backdrop-blur-sm">
-        <div className="container mx-auto p-4 border-t border-gray-200 dark:border-gray-700">
-            <div className="max-w-6xl mx-auto flex justify-center items-center gap-2 sm:gap-4">
-              <button
-                onClick={() => setIsHistoryPanelOpen(true)}
-                disabled={isLoading}
-                className="px-4 py-3 text-sm sm:px-6 sm:text-base font-semibold text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors duration-300"
-              >
-                {texts.history}
-              </button>
-              
-              <button
-                onClick={handleGenerate}
-                disabled={!copywriting.trim() || isLoading || !selectedModel}
-                className="flex items-center justify-center gap-2 px-4 py-3 text-sm sm:px-6 sm:text-base font-semibold text-white bg-blue-600 rounded-xl shadow-sm hover:bg-blue-500 disabled:bg-gray-400 dark:disabled:bg-gray-500 disabled:cursor-not-allowed transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-50 dark:focus:ring-offset-gray-900 focus:ring-blue-500"
-              >
-                <MagicIcon className="w-5 h-5" />
-                <span className="hidden sm:inline">{isLoading ? texts.generating : texts.generate}</span>
-              </button>
-              <button
-                onClick={handleClear}
-                disabled={isLoading}
-                className="px-4 py-3 text-sm sm:px-6 sm:text-base font-semibold text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors duration-300"
-              >
-                {texts.clear}
-              </button>
-            </div>
-        </div>
-      </div>
       <HistoryPanel
         isOpen={isHistoryPanelOpen}
         history={history}

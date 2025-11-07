@@ -74,7 +74,7 @@ export const SubtitleOutput: React.FC<SubtitleOutputProps> = ({ label, subtitles
   };
   
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl p-4 flex flex-col h-full relative shadow-sm border border-gray-200 dark:border-gray-700 transition-colors duration-300">
+    <div className="bg-white dark:bg-gray-800 rounded-xl p-4 flex flex-col h-full min-h-0 relative shadow-sm border border-gray-200 dark:border-gray-700 transition-colors duration-300">
       <div className="flex justify-between items-center mb-2">
         <label htmlFor="subtitle-output" className="text-sm font-medium text-gray-600 dark:text-gray-400">
           {label}
@@ -85,7 +85,7 @@ export const SubtitleOutput: React.FC<SubtitleOutputProps> = ({ label, subtitles
           </IconButton>
         )}
       </div>
-      <div id="subtitle-output" className="w-full flex-grow bg-gray-100 dark:bg-gray-800/50 rounded-lg p-3 overflow-y-auto text-base">
+      <div id="subtitle-output" className="w-full flex-grow min-h-0 bg-gray-100 dark:bg-gray-800/50 rounded-lg p-3 pr-4 overflow-y-auto text-base custom-scrollbar">
         {renderContent()}
       </div>
     </div>

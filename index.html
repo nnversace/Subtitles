@@ -14,6 +14,33 @@
       body {
         font-family: 'Inter', sans-serif;
       }
+      .custom-scrollbar {
+        scrollbar-width: thin;
+        scrollbar-color: rgba(148, 163, 184, 0.6) transparent;
+        scrollbar-gutter: stable both-edges;
+      }
+      .custom-scrollbar::-webkit-scrollbar {
+        width: 12px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-track {
+        background: rgba(148, 163, 184, 0.08);
+        border-radius: 9999px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-thumb {
+        background-color: rgba(148, 163, 184, 0.6);
+        border-radius: 9999px;
+        border: 3px solid transparent;
+        background-clip: content-box;
+      }
+      .dark .custom-scrollbar {
+        scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+      }
+      .dark .custom-scrollbar::-webkit-scrollbar-track {
+        background: rgba(148, 163, 184, 0.12);
+      }
+      .dark .custom-scrollbar::-webkit-scrollbar-thumb {
+        background-color: rgba(148, 163, 184, 0.35);
+      }
     </style>
     <script>
       tailwind.config = {
@@ -25,7 +52,6 @@
   "imports": {
     "react/": "https://aistudiocdn.com/react@^19.2.0/",
     "react": "https://aistudiocdn.com/react@^19.2.0",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.28.0",
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/"
   }
 }
